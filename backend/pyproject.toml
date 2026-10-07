@@ -1,0 +1,30 @@
+# Configuración de herramientas (no se usa para gestionar dependencias;
+# eso lo hacen requirements*.txt con versiones ancladas).
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# alembic/versions: migraciones autogeneradas; ml/notebooks: exploración
+extend-exclude = [".venv", "ml/notebooks", "alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# generadores de informes/figuras: se permite el estilo compacto en el código de plotting
+"ml/eda.py" = ["E702"]
+"ml/data_understanding.py" = ["E702"]
+"ml/mining/run_clustering.py" = ["E702"]
+"ml/mining/run_anomalies.py" = ["E702"]
+"ml/modeling/run_training.py" = ["E702"]
+# B008: `Depends(...)` en los valores por defecto es el patrón idiomático de FastAPI
+"app/api/routes/*.py" = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".."]
+addopts = "-ra -q"
+markers = [
+  "network: prueba que necesita acceso a internet (omitir con -m 'not network')",
+  "db: prueba que necesita PostgreSQL en marcha (omitir con -m 'not db')",
+]

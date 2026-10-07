@@ -1,0 +1,75 @@
+# =====================================================================
+# Weather Intelligence — dependencias de runtime del backend / analítica
+# Versiones ANCLADAS para reproducibilidad (fase-1 §25).
+# Instalar:  python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+#
+# Se irá ampliando por fases:
+#   Fase 2: adquisición + base de datos + ETL
+#   Fase 3: preparación de datos, features, EDA, minería de datos, ML
+#   Fase 6 (actual): API FastAPI + ingesta en tiempo real
+#   Fase 7+        : anthropic
+# =====================================================================
+
+# --- Datos ---
+pandas==2.2.3
+numpy==2.1.3
+pyarrow==18.1.0
+
+# --- Análisis / Machine Learning ---
+scikit-learn==1.6.0
+scipy==1.14.1
+joblib==1.6.0
+threadpoolctl==3.6.0
+
+# --- Adquisición ---
+requests==2.32.3
+tenacity==9.0.0
+meteostat==1.6.8
+
+# --- Base de datos / ETL ---
+SQLAlchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# --- API ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+APScheduler==3.11.0
+sse-starlette==2.2.1
+
+# --- IA generativa (Claude) ---
+anthropic==1.4.0
+
+# --- Dependencias transitivas ancladas (salida de pip freeze) ---
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+click==8.5.0
+distro==1.9.0
+greenlet==3.5.5
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx2==2.12.0
+idna==3.19
+jiter==0.16.0
+Mako==1.4.1
+psycopg-binary==3.2.3
+pydantic_core==2.27.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+pytz==2026.3.post1
+six==1.17.0
+sniffio==1.3.1
+starlette==0.41.3
+typing_extensions==4.16.0
+tzdata==2026.3
+tzlocal==5.4.4
+urllib3==2.7.0
+uvloop==0.21.0 ; sys_platform != "win32"
+watchfiles==1.2.0
+websockets==17.1
