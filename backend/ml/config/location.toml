@@ -1,0 +1,59 @@
+# =====================================================================
+# Fuente de verdad de la ubicación y de los parámetros de adquisición.
+# Cualquier script de adquisición / preparación lee de aquí.
+# No hardcodear coordenadas ni fechas en el código (ver fase-1 §25).
+# =====================================================================
+
+[location]
+name       = "Madrid-Barajas"
+slug       = "madrid_barajas"     # se usa en nombres de archivo
+latitude   = 40.4936              # aeropuerto Adolfo Suárez Madrid-Barajas (LEMD)
+longitude  = -3.5668
+timezone   = "Europe/Madrid"
+country    = "ES"
+# Nota: Open-Meteo ajusta a la celda de rejilla ERA5 más cercana
+# (~40.527, -3.559, elevación 618 m). Se documenta en el diccionario de datos.
+
+[historical]
+# Open-Meteo Historical Weather API (reanálisis ERA5). Licencia de datos: CC BY 4.0.
+start_date    = "2000-01-01"
+era5_lag_days = 3      # los últimos días de ERA5 aún se asimilan; end_date = hoy - era5_lag_days
+# Variables horarias a solicitar (nombres de la API Open-Meteo):
+hourly_variables = [
+  "temperature_2m",
+  "relative_humidity_2m",
+  "dew_point_2m",
+  "apparent_temperature",
+  "surface_pressure",
+  "pressure_msl",
+  "precipitation",
+  "rain",
+  "snowfall",
+  "cloud_cover",
+  "cloud_cover_low",
+  "cloud_cover_mid",
+  "cloud_cover_high",
+  "wind_speed_10m",
+  "wind_direction_10m",
+  "wind_gusts_10m",
+  "wind_speed_100m",
+  "shortwave_radiation",
+  "direct_radiation",
+  "diffuse_radiation",
+  "et0_fao_evapotranspiration",
+  "weather_code",
+  "is_day",
+]
+
+[meteostat]
+# Estación de observación real para el contraste con ERA5 (fase-1 §7.2).
+station_id = "08221"   # Madrid / Barajas  —  ICAO LEMD, WMO 08221
+
+[api]
+archive_base_url         = "https://archive-api.open-meteo.com/v1/archive"
+forecast_base_url        = "https://api.open-meteo.com/v1/forecast"
+request_timeout_seconds  = 180
+retry_attempts           = 6
+polite_delay_seconds     = 12.0  # pausa entre peticiones por año (Open-Meteo pondera
+                                 # cada llamada por nº de variables × días → hay que
+                                 # espaciar para no agotar el límite por minuto)
