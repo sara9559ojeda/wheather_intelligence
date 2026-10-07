@@ -1,0 +1,12 @@
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.ipynb_checkpoints
+.git
+data/
+docs/
+frontend/
+*.md
+.env

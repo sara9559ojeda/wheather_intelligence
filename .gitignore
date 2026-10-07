@@ -1,0 +1,50 @@
+# --- Secretos / entorno ---
+.env
+*.env
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Datos (no se versionan los datos crudos/derivados; sí sus metadatos .json) ---
+data/raw/*
+data/interim/*
+data/processed/*
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+!data/raw/*.meta.json
+!data/processed/*.json
+
+# --- Artefactos de modelo ---
+# Los modelos campeón (~11 MB) SÍ se versionan: la imagen Docker los necesita
+# para servir predicciones al desplegar desde el repo. El archivo de versiones
+# antiguas que genera el reentrenamiento no.
+backend/ml/artifacts/archive/
+
+# --- Frontend: repo independiente (weather_intelligence_front) clonado aquí ---
+frontend/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# --- Docker / SO ---
+*.log
+.DS_Store
+Thumbs.db
+
+# --- Editores / herramientas ---
+.vscode/
+.idea/
+.claude/
