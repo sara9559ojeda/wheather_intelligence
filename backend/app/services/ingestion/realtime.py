@@ -132,9 +132,8 @@ def ingest_current(session: Session, provider: WeatherProvider, slug: str) -> di
 
 
 def _recent_observations_df(session: Session, slug: str, hours: int = 60) -> pd.DataFrame:
-    df = load_observations_df(session, slug)
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
-    df = df[df["timestamp"] >= pd.Timestamp(cutoff)]
+    df = load_observations_df(session, slug, since=cutoff)
     return df.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
 
 

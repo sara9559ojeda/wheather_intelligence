@@ -23,8 +23,7 @@ def latest_predictions(
     predictor = get_predictor()
     if predictor is None:
         raise HTTPException(503, "Modelos no entrenados (ejecuta backend.ml.modeling.run_training)")
-    recent = load_observations_df(db, slug)
-    recent = recent.sort_values("timestamp").tail(72)
+    recent = load_observations_df(db, slug, last_n=72)
     try:
         preds = predictor.predict_from_observations(recent)
     except ValueError as exc:

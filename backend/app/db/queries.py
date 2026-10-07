@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,6 +33,8 @@ def load_observations_df(
     *,
     sources: tuple[str, ...] | None = None,
     with_id: bool = False,
+    since: datetime | None = None,
+    last_n: int | None = None,
 ) -> pd.DataFrame:
     """Observaciones de una ubicación como DataFrame ordenado por tiempo.
 
@@ -38,6 +42,8 @@ def load_observations_df(
     ``features.builder``). Los ``Numeric`` de PostgreSQL se convierten a float64.
     Con ``with_id=True`` se incluye la columna ``observation_id`` (necesaria para
     persistir clusters y anomalías, que referencian ``weather_observations.id``).
+    ``since`` y ``last_n`` filtran en SQL: las rutas de la API solo necesitan las
+    últimas horas y cargar el histórico completo dispara la memoria (~1,5 GB).
     """
     loc = get_location(session, slug)
     if loc is None:
@@ -50,9 +56,17 @@ def load_observations_df(
     stmt = select(*select_cols).where(WeatherObservation.location_id == loc.id)
     if sources:
         stmt = stmt.where(WeatherObservation.source.in_(sources))
-    stmt = stmt.order_by(WeatherObservation.observed_at)
+    if since is not None:
+        stmt = stmt.where(WeatherObservation.observed_at >= since)
+    if last_n is not None:
+        stmt = stmt.order_by(WeatherObservation.observed_at.desc()).limit(last_n)
+    else:
+        stmt = stmt.order_by(WeatherObservation.observed_at)
 
-    df = pd.DataFrame(session.execute(stmt).all(), columns=names)
+    rows = session.execute(stmt).all()
+    if last_n is not None:
+        rows.reverse()
+    df = pd.DataFrame(rows, columns=names)
     df = df.rename(columns={"observed_at": "timestamp"})
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     df[_NUMERIC] = df[_NUMERIC].astype("float64")

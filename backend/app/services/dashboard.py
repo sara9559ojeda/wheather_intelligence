@@ -50,7 +50,7 @@ def _predictions(db: Session, slug: str) -> list[HorizonPredictionOut]:
     predictor = get_predictor()
     if predictor is None:
         return []
-    recent = load_observations_df(db, slug).sort_values("timestamp").tail(72)
+    recent = load_observations_df(db, slug, last_n=72)
     try:
         return [HorizonPredictionOut(**p.as_dict())
                 for p in predictor.predict_from_observations(recent)]
@@ -221,9 +221,8 @@ def build_ai_summary(db: Session, slug: str) -> dict:
 
 
 def _correlation_last_days(db: Session, slug: str, days: int = 30) -> dict:
-    df = load_observations_df(db, slug)
     cutoff = datetime.now(UTC) - timedelta(days=days)
-    df = df[df["timestamp"] >= cutoff.replace(tzinfo=UTC)]
+    df = load_observations_df(db, slug, since=cutoff)
     if len(df) < 50:
         return {}
     out = {}
