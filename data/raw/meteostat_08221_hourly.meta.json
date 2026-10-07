@@ -1,0 +1,76 @@
+{
+  "dataset_file": "meteostat_08221_hourly.parquet",
+  "source": "Meteostat — estación 08221 (Madrid / Barajas)",
+  "source_url": "https://dev.meteostat.net/",
+  "license": "CC BY 4.0",
+  "downloaded_at_utc": "2026-09-09T00:02:11+00:00",
+  "n_rows": 228281,
+  "n_columns": 12,
+  "columns": [
+    "timestamp",
+    "temp",
+    "dwpt",
+    "rhum",
+    "prcp",
+    "snow",
+    "wdir",
+    "wspd",
+    "wpgt",
+    "pres",
+    "tsun",
+    "coco"
+  ],
+  "timestamp_column": "timestamp",
+  "date_range_utc": {
+    "start": "2000-01-01T00:00:00+00:00",
+    "end": "2026-03-29T22:00:00+00:00"
+  },
+  "expected_hourly_rows": 230039,
+  "duplicate_timestamps": 0,
+  "missing_values_per_column": {
+    "timestamp": 0,
+    "temp": 266,
+    "dwpt": 360,
+    "rhum": 360,
+    "prcp": 195492,
+    "snow": 225711,
+    "wdir": 16297,
+    "wspd": 575,
+    "wpgt": 207306,
+    "pres": 36049,
+    "tsun": 228281,
+    "coco": 158315
+  },
+  "sha256": "416bcc45ef8edc2edf6557276ead5767496e9bbc137d129fe1dc86db1f2b75e8",
+  "station": {
+    "id": "08221",
+    "identifiers": {
+      "wmo": "08221",
+      "icao": "LEMD",
+      "iata": "MAD",
+      "ghcn": "SPE00120278",
+      "usaf": "082210",
+      "mosmix": "08221"
+    },
+    "location": {
+      "latitude": 40.45,
+      "longitude": -3.55,
+      "elevation": 609
+    },
+    "timezone": "Europe/Madrid"
+  },
+  "column_glossary": {
+    "temp": "air_temperature_c",
+    "dwpt": "dew_point_c",
+    "rhum": "relative_humidity_pct",
+    "prcp": "precipitation_mm",
+    "snow": "snow_depth_mm",
+    "wdir": "wind_direction_deg",
+    "wspd": "wind_speed_kmh",
+    "wpgt": "wind_gust_kmh",
+    "pres": "sea_level_pressure_hpa",
+    "tsun": "sunshine_minutes",
+    "coco": "weather_condition_code"
+  },
+  "notes": "Observación real de estación (METAR/SYNOP agregados). Presión = nivel del mar (pres). Espere huecos y periodos sin datos, sobre todo antes de ~2005."
+}
