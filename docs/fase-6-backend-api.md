@@ -25,6 +25,8 @@ API REST documentada con **OpenAPI 3.1** (Swagger en `/docs`). Todo bajo `/api`.
 | `GET /comparison/latest` | Comparación histórica de la última observación (percentiles + régimen + anomalía) |
 | `GET /insights` | Resumen estructurado para Claude (la interpretación real llega en la fase 7) |
 | `GET /stream` | **Server-Sent Events**: avisa cuando entra una observación nueva |
+| `GET /ws` (WebSocket) | Mismos avisos por **WebSocket** — canal preferente desde la §9 |
+| `POST /tasks/ingest` | Dispara una ingesta (modo serverless). Protegido con `Bearer INGEST_TOKEN` (§9) |
 
 ## 2. Ingesta en tiempo real
 
@@ -101,16 +103,17 @@ backend/app/
   core/config.py       configuración tipada (.env)
   api/
     deps.py            get_db, get_location_slug
-    routes/            health, weather, analytics, predictions, dashboard, insights, stream
+    routes/            health, weather, analytics, predictions, dashboard, insights,
+                       stream (SSE), ws (WebSocket), tasks (POST /tasks/ingest)
   schemas/models.py    modelos Pydantic de respuesta
   services/
     ingestion/         WeatherProvider (adapter) + open_meteo + realtime
     historical/        comparison — percentiles condicionados, régimen, anomalía
     prediction/        TemperaturePredictor (carga artefactos, predice)
     artifacts.py       carga perezosa y cacheada de los .joblib
-    events.py          bus de eventos en proceso para SSE
+    events.py          bus de eventos (memoria o Redis pub/sub) para WebSocket y SSE
     dashboard.py       ensamblado del /dashboard y del resumen para Claude
-  scheduler/jobs.py    APScheduler: job de ingesta cada 30 min
+  scheduler/jobs.py    APScheduler: job de ingesta cada 30 min (run_ingest reutilizable)
 ```
 
 ## 7. Empaquetado
@@ -126,6 +129,116 @@ artefactos `.joblib` van dentro de la imagen.
 
 `backend/tests/test_api.py` (13, con `TestClient`) y `test_ingestion.py` (3).
 Marcador `db`. **48 pruebas** en total en verde.
+
+## 9. Ampliación: WebSocket + Redis y despliegue serverless (Vercel)
+
+*Añadido el 2026-11-04.* El backend pasa a poder desplegarse en **Vercel
+Functions** (Fluid compute), con Postgres en **Neon** y Redis en **Upstash**.
+Docker/local siguen funcionando exactamente igual.
+
+### 9.1 Bus de eventos con dos backends
+
+`services/events.py` mantiene la misma interfaz (`publish`, `subscribe`,
+`unsubscribe`) y los mismos eventos (`observation`, `model_updated`), con dos
+implementaciones según `REDIS_URL`:
+
+| `REDIS_URL` | Backend | Cuándo |
+|---|---|---|
+| vacío | memoria (una cola por cliente, en proceso) | desarrollo local, tests |
+| `redis://` / `rediss://` | **Redis pub/sub**, canal `weather_intelligence:events` | Docker Compose (servicio `redis`), Vercel + Upstash |
+
+En Vercel cada conexión WebSocket queda **fijada a una instancia** y el evento
+puede generarse en otra (la invocación de `POST /api/tasks/ingest`), así que el
+reparto entre instancias lo hace Redis: `publish` hace `PUBLISH` (cliente
+síncrono, porque se llama desde hilos) y cada cliente conectado abre su propia
+suscripción con `redis.asyncio`. Si Redis se cae, la suscripción avisa y el
+servidor cierra la conexión (1011) para que el cliente reconecte.
+
+### 9.2 Contrato del WebSocket `GET /api/ws`
+
+Frames de texto JSON, solo servidor → cliente (lo que mande el cliente se ignora):
+
+| `type` | `data` | Qué debe hacer el cliente |
+|---|---|---|
+| `connected` | `{"heartbeat_seconds": 25, "max_connection_seconds": 0}` | Primer mensaje; la suscripción ya está activa. Hacer un refetch inicial |
+| `observation` | `{"observed_at": "2026-11-05T04:00:00+00:00", "temperature_2m": 2.5, "is_anomaly": false}` | Refetch de `/api/dashboard` |
+| `model_updated` | `{"status": "promoted", "promoted_horizons": ["1", "24"]}` | Refetch de `/api/model/*` |
+| `ping` | — (sin campo `data`) | Latido si no hubo otro mensaje en 25 s; no requiere respuesta |
+
+Tipos desconocidos: ignorarlos (el contrato puede crecer).
+
+**Cierre y reconexión.** En Vercel la conexión se corta al llegar a la duración
+máxima de la función (300 s en Hobby). Con `WS_MAX_CONNECTION_SECONDS=280` el
+servidor la cierra antes, de forma ordenada, con código **1012**; con **1011**
+si falla el bus. El cliente debe reconectar siempre con *backoff* exponencial
+(1 s → 30 s) y hacer refetch al reconectar: los eventos emitidos mientras
+estaba desconectado no se reenvían.
+
+```js
+// cliente mínimo (navegador)
+function connect(delay = 1000) {
+  const ws = new WebSocket(`${API_URL.replace(/^http/, "ws")}/api/ws`);
+  ws.onopen = () => { delay = 1000; };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "connected" || msg.type === "observation") refetchDashboard();
+    else if (msg.type === "model_updated") refetchModels();
+  };
+  ws.onclose = () => setTimeout(() => connect(Math.min(delay * 2, 30000)), delay);
+}
+```
+
+`GET /api/stream` (SSE) se mantiene, alimentado por el mismo bus y con el mismo
+formato que antes (`event: update`, `data: {"event": ..., "data": ...}`),
+hasta que el frontend migre al WebSocket.
+
+### 9.3 Modo serverless
+
+| Variable | Docker/local | Vercel | Efecto |
+|---|---|---|---|
+| `ENABLE_SCHEDULER` | `true` | `false` | APScheduler (ingesta 30 min + comprobación de reentreno) |
+| `RUN_STARTUP_BACKFILL` | `true` | `false` | backfill de 72 h + ingesta al arrancar |
+| `DB_POOL_MODE` | `queue` | `null` | `NullPool` (sin conexiones retenidas; el pooling lo hace el pooler de Neon) |
+| `REDIS_URL` | `redis://redis:6379/0` (compose) | URL `rediss://` de Upstash | bus de eventos |
+| `INGEST_TOKEN` | opcional | obligatorio | habilita `POST /api/tasks/ingest` |
+| `WS_MAX_CONNECTION_SECONDS` | `0` | `280` | cierre ordenado antes del límite de la función |
+
+- **Ingesta**: el cron de Vercel Hobby solo admite una ejecución al día, así
+  que `.github/workflows/ingest.yml` llama cada 30 min a
+  `POST /api/tasks/ingest` con `Authorization: Bearer <INGEST_TOKEN>`. Ejecuta
+  `run_ingest` (lo mismo que el job del scheduler: rellena huecos, procesa y
+  publica `observation`). Sin token configurado el endpoint responde **503**
+  (nunca queda abierto); token ausente o incorrecto → **401**
+  (`secrets.compare_digest`); fallo de la ingesta → **502**.
+- **Reentrenamiento**: no se expone por HTTP (≈5 min, más que la duración
+  máxima de la función). Se lanza a mano (`run_retraining`) o desde Docker.
+- **Migraciones**: nunca por petición. Se aplican a mano contra Neon con la
+  URL *directa* (sin `-pooler`): `alembic upgrade head`.
+- `DATABASE_URL` acepta `postgres://`/`postgresql://` (formato de Neon) y se
+  normaliza a `postgresql+psycopg://`.
+
+### 9.4 Empaquetado para Vercel
+
+- **Entrypoint**: `index.py` en la raíz exporta `app` (de `backend.app.main`).
+- **Dependencias**: `requirements.txt` de la raíz = **runtime de la API**
+  (también lo usa la imagen Docker). `backend/requirements.txt` lo incluye y
+  añade lo exclusivo de los pipelines offline (`pyarrow`, `meteostat`).
+  Medido en `python:3.12-slim` sin *bytecode*: **357 MB** de site-packages
+  para la API frente a **484 MB** con todo, con un límite de 500 MB por
+  función; más ~11 MB de artefactos `.joblib`.
+- **`vercel.json`**: `maxDuration: 300`; `includeFiles` fuerza los `.joblib`
+  y `backend/ml/config`; `excludeFiles` deja fuera `data/`, `docs/`,
+  `frontend/`, `backend/tests/`, notebooks, `alembic/` y el archivo de
+  modelos antiguos.
+- `.python-version` fija Python 3.12 (el mismo que la imagen Docker).
+
+### 9.5 Pruebas
+
+`backend/tests/test_realtime.py`: bus en memoria, WebSocket (evento publicado,
+`ping`, cierre 1011/1012, baja de la suscripción), autenticación de
+`/tasks/ingest` (503/401/200/502, ingesta simulada), lifespan con el modo
+serverless y configuración. Las de Redis llevan el marcador `redis`
+(`docker compose up -d redis`). **85 pruebas** en total en verde.
 
 ---
 

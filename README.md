@@ -91,7 +91,7 @@ O todo junto con Docker (sirve la API y el dashboard contra la BD ya preparada):
 
 ```bash
 git clone https://github.com/sara9559ojeda/weather_intelligence_front.git frontend   # si aún no está
-docker compose up -d          # db + backend + frontend  ->  http://localhost:5173
+docker compose up -d          # db + redis + backend + frontend  ->  http://localhost:5173
 ```
 
 Los datos van a `data/raw/` (ignorados por git); sus metadatos
@@ -100,9 +100,10 @@ Los datos van a `data/raw/` (ignorados por git); sus metadatos
 ## Pruebas
 
 ```bash
-backend/.venv/Scripts/python -m pytest backend/tests -m "not network and not db"   # rápidas, sin dependencias
-backend/.venv/Scripts/python -m pytest backend/tests -m "db"                        # requieren PostgreSQL en marcha
-backend/.venv/Scripts/python -m pytest backend/tests                                # todas (red + BD)
+backend/.venv/Scripts/python -m pytest backend/tests -m "not network and not db and not redis"   # rápidas
+backend/.venv/Scripts/python -m pytest backend/tests -m "db"      # requieren PostgreSQL (docker compose up -d db)
+backend/.venv/Scripts/python -m pytest backend/tests -m "redis"   # requieren Redis (docker compose up -d redis)
+backend/.venv/Scripts/python -m pytest backend/tests              # todas (red + BD + Redis)
 ```
 
 Linter: `backend/.venv/Scripts/python -m ruff check backend/`
@@ -113,6 +114,10 @@ Linter: `backend/.venv/Scripts/python -m ruff check backend/`
 
 ```
 docs/              documentación académica (diseño, Data Understanding, diccionario de datos)
+requirements.txt   dependencias de runtime de la API (Docker y Vercel)
+index.py           entrypoint de Vercel (reexporta backend.app.main:app)
+vercel.json        configuración de la función de Vercel (duración, ficheros incluidos/excluidos)
+.github/workflows/ ingest.yml — dispara la ingesta cada 30 min en el despliegue serverless
 data/              raw / interim / processed  (datos ignorados por git)
 backend/
   alembic/         migraciones de la base de datos
@@ -120,7 +125,8 @@ backend/
   app/
     main.py        app FastAPI (lifespan: backfill + scheduler), CORS, errores
     core/config.py configuración tipada leída de .env
-    api/routes/    endpoints REST (health, weather, analytics, predictions, dashboard, stream)
+    api/routes/    endpoints REST (health, weather, analytics, predictions, dashboard, ...),
+                   tiempo real (ws = WebSocket, stream = SSE) y tasks (POST /api/tasks/ingest)
     schemas/       modelos Pydantic de respuesta
     scheduler/     APScheduler: ingesta en tiempo real (30 min) + comprobación de reentrenamiento (24 h)
     db/            modelos SQLAlchemy, engine, sesión, consultas
@@ -132,6 +138,8 @@ backend/
       historical/  comparación con el histórico (percentiles condicionados, régimen, anomalía)
       claude/      capa de interpretación (prompt + cliente Anthropic + caché + fallback)
       dashboard.py ensamblado de /dashboard y del resumen para Claude
+      events.py    bus de eventos de tiempo real (memoria o Redis pub/sub)
+  requirements.txt  pipelines offline: incluye ../requirements.txt + pyarrow, meteostat
   ml/
     config/        location.toml — fuente de verdad de ubicación y parámetros
     acquisition/   descarga de datos (Open-Meteo, Meteostat)
@@ -176,10 +184,30 @@ queda en `retraining_runs` — `GET /api/model/retraining-history`. Detalle y
 una ejecución real verificada en
 [`docs/fase-9-retraining.md`](docs/fase-9-retraining.md).
 
+## Tiempo real y despliegue en Vercel
+
+El dashboard recibe avisos en tiempo real por **WebSocket** (`ws://…/api/ws`) o
+por SSE (`/api/stream`, se mantiene mientras el frontend migra). Ambos salen del
+mismo bus de eventos: en memoria si `REDIS_URL` está vacío, **Redis pub/sub** si
+no (Docker Compose levanta `redis:7-alpine`; en Vercel, Upstash). Mensajes del
+WebSocket (JSON): `{"type": "connected"|"observation"|"model_updated", "data": {...}}`
+y `{"type": "ping"}` cada 25 s sin tráfico; el cliente debe reconectar con
+*backoff* al cerrarse la conexión. Contrato completo en
+[`docs/fase-6-backend-api.md` §9](docs/fase-6-backend-api.md).
+
+El backend se puede desplegar en **Vercel Functions** (entrypoint `index.py`,
+`vercel.json`, `requirements.txt` de la raíz). En serverless no hay scheduler:
+`ENABLE_SCHEDULER=false`, `RUN_STARTUP_BACKFILL=false`, `DB_POOL_MODE=null`, y la
+ingesta de cada 30 min la dispara [`.github/workflows/ingest.yml`](.github/workflows/ingest.yml)
+contra `POST /api/tasks/ingest` (`Authorization: Bearer $INGEST_TOKEN`; sin
+token configurado el endpoint queda deshabilitado). Las migraciones se aplican a
+mano (`alembic upgrade head`) contra la URL directa de Neon.
+
 ## Reproducibilidad
 
 - Semillas fijas (`random_state=42`) en todos los modelos y en el muestreo.
-- Versiones ancladas: `backend/requirements.txt` (Python), `package.json` del repo del frontend
+- Versiones ancladas: `requirements.txt` (runtime de la API) y `backend/requirements.txt`
+  (pipelines offline, lo incluye) para Python; `package.json` del repo del frontend
   (Node, con `package-lock.json`).
 - Cada dataset crudo lleva un `*.meta.json` con `sha256`, fuente, licencia y
   rango — `data/raw/` y `data/processed/*.json` documentan de dónde sale cada
