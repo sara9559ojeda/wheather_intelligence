@@ -48,3 +48,6 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+
+# --- Vercel CLI (enlace local del proyecto) ---
+.vercel/

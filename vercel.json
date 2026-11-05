@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "index.py": {
+      "maxDuration": 300,
+      "includeFiles": "backend/ml/{artifacts/*.joblib,config/**}",
+      "excludeFiles": "{data/**,docs/**,frontend/**,backend/tests/**,backend/ml/notebooks/**,backend/ml/artifacts/archive/**,backend/alembic/**,backend/alembic.ini,backend/Dockerfile,**/*.ipynb,**/.ipynb_checkpoints/**,.github/**,docker-compose.yml,README.md}"
+    }
+  }
+}
