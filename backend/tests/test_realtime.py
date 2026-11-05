@@ -8,7 +8,7 @@
 
 Nada de esto necesita PostgreSQL ni red: ``TestClient`` sin context manager no
 ejecuta el lifespan. Las pruebas marcadas ``redis`` necesitan un Redis en
-``REDIS_TEST_URL`` (por defecto ``redis://localhost:6379/15``; ``docker compose
+``REDIS_TEST_URL`` (por defecto ``redis://127.0.0.1:6379/15``; ``docker compose
 up -d redis``) y se omiten con ``-m 'not redis'``.
 """
 
@@ -31,7 +31,7 @@ from backend.app.main import app
 from backend.app.scheduler import jobs
 from backend.app.services.events import CLOSED, EventBus
 
-REDIS_TEST_URL = os.environ.get("REDIS_TEST_URL", "redis://localhost:6379/15")
+REDIS_TEST_URL = os.environ.get("REDIS_TEST_URL", "redis://127.0.0.1:6379/15")
 client = TestClient(app)
 
 
