@@ -1,4 +1,4 @@
-# Imagen del backend (API FastAPI + scheduler de ingesta).
+# Imagen del backend (API FastAPI + scheduler de ingesta + bus de eventos).
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -6,9 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencias primero (mejor cacheo)
-COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+# Dependencias primero (mejor cacheo). Solo el runtime de la API (requirements.txt
+# de la raíz); lo exclusivo de los pipelines offline está en backend/requirements.txt.
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Código de la aplicación + artefactos de ML + configuración
 COPY backend/ ./backend/
