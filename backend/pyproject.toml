@@ -27,4 +27,5 @@ addopts = "-ra -q"
 markers = [
   "network: prueba que necesita acceso a internet (omitir con -m 'not network')",
   "db: prueba que necesita PostgreSQL en marcha (omitir con -m 'not db')",
+  "redis: prueba que necesita Redis en marcha (docker compose up -d redis; omitir con -m 'not redis')",
 ]
