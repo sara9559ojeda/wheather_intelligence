@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     backend_cors_origins: str = "http://localhost:5173"
     log_level: str = "INFO"
 
+    # --- Tiempo real ---
+    # Vacío: bus de eventos en memoria (una instancia). Con valor (redis:// o rediss://):
+    # pub/sub de Redis, necesario con varias instancias (Vercel + Upstash).
+    redis_url: str = ""
+    # Cierre ordenado de cada WebSocket tras N segundos (0 = sin límite). En Vercel,
+    # algo menos que la duración máxima de la función (p. ej. 280 con maxDuration=300).
+    ws_max_connection_seconds: int = 0
+
     # --- Reentrenamiento (fase 9) ---
     retrain_check_interval_hours: int = 24     # cada cuánto se COMPRUEBA si toca reentrenar
     retrain_volume_trigger: int = 1000         # nº de observaciones realtime nuevas que disparan

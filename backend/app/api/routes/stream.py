@@ -2,6 +2,9 @@
 
 Patrón "SSE notifica, REST trae los datos": el evento solo dice *qué* cambió;
 el frontend hace *refetch* del endpoint correspondiente.
+
+Se mantiene mientras el frontend desplegado lo use; el canal preferente es el
+WebSocket ``/api/ws`` (ver ``ws.py``). Ambos leen del mismo bus de eventos.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import logging
 from fastapi import APIRouter, Request
 from sse_starlette.sse import EventSourceResponse
 
-from backend.app.services.events import bus
+from backend.app.services.events import CLOSED, bus
 
 router = APIRouter(tags=["stream"])
 log = logging.getLogger(__name__)
@@ -31,9 +34,12 @@ async def stream(request: Request) -> EventSourceResponse:
                     break
                 try:
                     message = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
-                    yield {"event": "update", "data": message}
                 except TimeoutError:
                     yield {"event": "ping", "data": "{}"}
+                    continue
+                if message is CLOSED:  # el bus se cayó: se corta y el cliente reconecta
+                    break
+                yield {"event": "update", "data": message}
         finally:
             bus.unsubscribe(queue)
             log.debug("Cliente SSE desconectado (%d activos)", bus.n_subscribers)

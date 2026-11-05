@@ -1,9 +1,11 @@
 """Aplicación FastAPI de Weather Intelligence.
 
 Arranque (lifespan):
-  1. enlaza el event loop con el bus de SSE
-  2. backfill de las últimas 72 h desde Open-Meteo (para que el dashboard no esté vacío)
-  3. arranca el scheduler de ingesta en tiempo real
+  1. backfill de las últimas 72 h desde Open-Meteo (para que el dashboard no esté vacío)
+  2. arranca el scheduler de ingesta en tiempo real
+
+Tiempo real: WebSocket /api/ws y SSE /api/stream, alimentados por el bus de
+eventos (memoria, o Redis pub/sub si REDIS_URL está definido).
 
 OpenAPI/Swagger en /docs, esquema en /openapi.json.
 """
@@ -26,6 +28,7 @@ from backend.app.api.routes import (
     predictions,
     stream,
     weather,
+    ws,
 )
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
@@ -43,7 +46,7 @@ log = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    bus.bind_loop(asyncio.get_running_loop())
+    log.info("Bus de eventos: %s", bus.backend)
 
     async def _startup_ingest() -> None:
         client = OpenMeteoForecastClient(
@@ -71,6 +74,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         stop_scheduler()
+        bus.close()
 
 
 app = FastAPI(
@@ -95,7 +99,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 
-for r in (health, weather, analytics, predictions, dashboard, insights, stream):
+for r in (health, weather, analytics, predictions, dashboard, insights, stream, ws):
     app.include_router(r.router, prefix="/api")
 
 
