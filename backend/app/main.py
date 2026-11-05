@@ -1,8 +1,10 @@
 """Aplicación FastAPI de Weather Intelligence.
 
-Arranque (lifespan):
-  1. backfill de las últimas 72 h desde Open-Meteo (para que el dashboard no esté vacío)
-  2. arranca el scheduler de ingesta en tiempo real
+Arranque (lifespan), cada paso desactivable para modo serverless (Vercel):
+  1. backfill de las últimas 72 h desde Open-Meteo (para que el dashboard no esté
+     vacío) + una ingesta de condiciones actuales   -> RUN_STARTUP_BACKFILL
+  2. arranca el scheduler de ingesta en tiempo real -> ENABLE_SCHEDULER
+En Vercel ambos van a false y la ingesta llega por POST /api/tasks/ingest.
 
 Tiempo real: WebSocket /api/ws y SSE /api/stream, alimentados por el bus de
 eventos (memoria, o Redis pub/sub si REDIS_URL está definido).
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -27,6 +30,7 @@ from backend.app.api.routes import (
     insights,
     predictions,
     stream,
+    tasks,
     weather,
     ws,
 )
@@ -46,7 +50,11 @@ log = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("Bus de eventos: %s", bus.backend)
+    log.info("Bus de eventos: %s | scheduler=%s | backfill inicial=%s",
+             bus.backend, settings.enable_scheduler, settings.run_startup_backfill)
+    if os.environ.get("VERCEL") and (settings.enable_scheduler or settings.run_startup_backfill):
+        log.warning("Ejecutando en Vercel con ENABLE_SCHEDULER/RUN_STARTUP_BACKFILL activos: "
+                    "en serverless deben ser false (la ingesta llega por /api/tasks/ingest)")
 
     async def _startup_ingest() -> None:
         client = OpenMeteoForecastClient(
@@ -68,12 +76,18 @@ async def lifespan(app: FastAPI):
         # una ingesta de "condiciones actuales" para tener el dato más fresco
         await asyncio.to_thread(ingest_job)
 
-    asyncio.create_task(_startup_ingest())
-    start_scheduler()
+    startup_task = None
+    if settings.run_startup_backfill:
+        startup_task = asyncio.create_task(_startup_ingest())
+    if settings.enable_scheduler:
+        start_scheduler()
     try:
         yield
     finally:
-        stop_scheduler()
+        if settings.enable_scheduler:
+            stop_scheduler()
+        if startup_task is not None and not startup_task.done():
+            startup_task.cancel()
         bus.close()
 
 
@@ -88,6 +102,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
+    # POST /api/tasks/* lo llama un servidor (GitHub Actions), no el navegador
     allow_methods=["GET"],
     allow_headers=["*"],
 )
@@ -99,7 +114,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 
-for r in (health, weather, analytics, predictions, dashboard, insights, stream, ws):
+for r in (health, weather, analytics, predictions, dashboard, insights, stream, ws, tasks):
     app.include_router(r.router, prefix="/api")
 
 

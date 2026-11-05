@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py -> parents[3] == raíz del repo
@@ -30,6 +31,10 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+psycopg://weather:weather_dev_local@localhost:5432/weather_intelligence"
     )
+    # "queue" (por defecto): pool de conexiones clásico, para un proceso de larga vida.
+    # "null": sin pool (NullPool), una conexión por sesión — para funciones serverless
+    #         (Vercel) detrás del pooler de Neon/PgBouncer.
+    db_pool_mode: Literal["queue", "null"] = "queue"
 
     # --- Ubicación del análisis (coincide con backend/ml/config/location.toml) ---
     wi_location_name: str = "Madrid-Barajas"
@@ -53,6 +58,12 @@ class Settings(BaseSettings):
     backend_cors_origins: str = "http://localhost:5173"
     log_level: str = "INFO"
 
+    # --- Modo de ejecución (proceso de larga vida vs. serverless) ---
+    # En Docker/local ambos a true (comportamiento de siempre). En Vercel a false:
+    # la ingesta la dispara GitHub Actions contra POST /api/tasks/ingest.
+    enable_scheduler: bool = True       # APScheduler (ingesta + comprobación de reentreno)
+    run_startup_backfill: bool = True   # backfill de 72 h + ingesta al arrancar
+
     # --- Tiempo real ---
     # Vacío: bus de eventos en memoria (una instancia). Con valor (redis:// o rediss://):
     # pub/sub de Redis, necesario con varias instancias (Vercel + Upstash).
@@ -61,12 +72,26 @@ class Settings(BaseSettings):
     # algo menos que la duración máxima de la función (p. ej. 280 con maxDuration=300).
     ws_max_connection_seconds: int = 0
 
+    # --- Endpoint protegido de tareas (POST /api/tasks/ingest) ---
+    # Vacío = endpoint deshabilitado (503). Se envía como "Authorization: Bearer <token>".
+    ingest_token: str = ""
+
     # --- Reentrenamiento (fase 9) ---
     retrain_check_interval_hours: int = 24     # cada cuánto se COMPRUEBA si toca reentrenar
     retrain_volume_trigger: int = 1000         # nº de observaciones realtime nuevas que disparan
     retrain_calendar_days: int = 30            # o llevar este nº de días sin comprobar
     retrain_epsilon: float = 0.02              # el retador debe mejorar el RMSE al menos un 2 %
     retrain_degradation_threshold: float = 1.20  # o el campeón haber empeorado un 20 %
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg_driver(cls, v: str) -> str:
+        """Acepta URLs ``postgres://`` / ``postgresql://`` (las que da Neon/Vercel) y
+        fuerza el driver psycopg 3, que es el instalado."""
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     @property
     def cors_origins_list(self) -> list[str]:

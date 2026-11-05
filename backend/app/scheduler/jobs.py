@@ -1,4 +1,8 @@
-"""Trabajos periódicos (APScheduler) — ingesta en tiempo real."""
+"""Trabajos periódicos (APScheduler) — ingesta en tiempo real.
+
+En modo serverless (``ENABLE_SCHEDULER=false``) el scheduler no arranca y la
+ingesta se dispara desde fuera con ``POST /api/tasks/ingest`` (ver ``run_ingest``).
+"""
 
 from __future__ import annotations
 
@@ -25,23 +29,36 @@ def _make_client() -> OpenMeteoForecastClient:
     )
 
 
-def ingest_job() -> None:
+def run_ingest() -> dict | None:
+    """Una pasada de ingesta (rellena huecos, procesa y publica el evento ``observation``).
+
+    Lanza la excepción si falla (tras hacer rollback). La usan el job del
+    scheduler y el endpoint ``POST /api/tasks/ingest`` (modo serverless).
+    """
     session = SessionLocal()
     try:
         summary = ingest_current(session, _make_client(), settings.wi_location_slug)
         session.commit()
-        if summary:
-            comp = summary["comparison"]
-            log.info("Nueva observación %s | anomalía=%s | cluster=%s | %d predicciones",
-                     summary["observed_at"], comp.get("is_anomaly"),
-                     comp.get("cluster_label"), len(summary["predictions"]))
-        else:
-            log.debug("Sin datos nuevos de Open-Meteo")
-    except Exception:  # noqa: BLE001 — el job nunca debe tumbar el scheduler
+    except Exception:
         session.rollback()
-        log.exception("Fallo en el job de ingesta")
+        raise
     finally:
         session.close()
+    if summary:
+        comp = summary["comparison"]
+        log.info("Nueva observación %s | anomalía=%s | cluster=%s | %d predicciones",
+                 summary["observed_at"], comp.get("is_anomaly"),
+                 comp.get("cluster_label"), len(summary["predictions"]))
+    else:
+        log.debug("Sin datos nuevos de Open-Meteo")
+    return summary
+
+
+def ingest_job() -> None:
+    try:
+        run_ingest()
+    except Exception:  # noqa: BLE001 — el job nunca debe tumbar el scheduler
+        log.exception("Fallo en el job de ingesta")
 
 
 def retrain_check_job() -> None:
