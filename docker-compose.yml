@@ -2,6 +2,7 @@
 # Weather Intelligence — orquestación de servicios
 #
 #   db        PostgreSQL 16
+#   redis     Redis 7 — pub/sub del bus de eventos en tiempo real (WebSocket / SSE)
 #   backend   API FastAPI + scheduler de ingesta (aplica migraciones al arrancar)
 #   frontend  dashboard React (Nginx) — sirve la SPA y hace de proxy a /api
 #             (repo aparte: clónalo en ./frontend antes de levantar, ver README)
@@ -29,6 +30,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: wi_redis
+    restart: unless-stopped
+    # solo pub/sub efímero: sin persistencia en disco
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      # solo en localhost (sin contraseña): lo usan los tests -m redis desde el host
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: .
@@ -39,8 +55,12 @@ services:
     environment:
       # dentro de la red de compose el host de la BD es "db"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # bus de eventos por Redis (mismo camino que en Vercel + Upstash)
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"
