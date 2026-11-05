@@ -1,0 +1,42 @@
+# =====================================================================
+# Ingesta en tiempo real cada 30 min (modo serverless / Vercel)
+#
+# En Vercel no corre APScheduler y el cron de Hobby solo permite una ejecución
+# diaria, así que este workflow llama al endpoint protegido de la API.
+#
+# Configuración (Settings -> Secrets and variables -> Actions):
+#   vars.API_URL         URL pública del backend, sin "/" final
+#                        (p. ej. https://weather-intelligence-api.vercel.app)
+#   secrets.INGEST_TOKEN el mismo valor que la variable INGEST_TOKEN del backend
+# Sin API_URL el job se salta (no falla). GitHub no garantiza la puntualidad
+# de "schedule" (puede retrasarse unos minutos); la ingesta rellena huecos.
+# =====================================================================
+name: ingest
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      API_URL: ${{ vars.API_URL }}
+      INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+    steps:
+      - name: POST /api/tasks/ingest
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::notice::vars.API_URL no está definida; se omite la ingesta."
+            exit 0
+          fi
+          curl -fsS -X POST "$API_URL/api/tasks/ingest" -H "Authorization: Bearer $INGEST_TOKEN" \
+            --max-time 300 --retry 2 --retry-delay 20
