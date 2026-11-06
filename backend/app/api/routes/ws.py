@@ -3,6 +3,12 @@
 Mismo patrón que el SSE de ``/api/stream`` ("el socket notifica, REST trae los
 datos") y alimentado por el mismo bus de eventos (memoria o Redis pub/sub).
 
+Autenticación: el navegador no puede enviar cabeceras en un WebSocket, así que
+el cliente pide un ticket de 60 s con ``POST /api/auth/stream-ticket`` (con su
+sesión) y conecta a ``/api/ws?ticket=<ticket>``. Sin ticket válido el
+handshake se rechaza (HTTP 403 / cierre 1008). Hay que pedir un ticket nuevo
+en cada (re)conexión.
+
 Contrato de mensajes (servidor -> cliente, frames de texto JSON)::
 
     {"type": "connected", "data": {"heartbeat_seconds": 25,
@@ -43,6 +49,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from backend.app.core.config import settings
+from backend.app.core.security import TOKEN_STREAM, AuthNotConfigured, InvalidToken, decode_token
 from backend.app.services.events import CLOSED, bus
 
 router = APIRouter(tags=["stream"])
@@ -56,6 +63,13 @@ _CLIENT_GONE = (WebSocketDisconnect, OSError, RuntimeError)
 
 @router.websocket("/ws")
 async def websocket_events(websocket: WebSocket) -> None:
+    # Autenticación: ticket de 60 s (POST /api/auth/stream-ticket) en ?ticket=.
+    # Se valida ANTES de aceptar: sin ticket válido el handshake se rechaza (HTTP 403).
+    try:
+        decode_token(websocket.query_params.get("ticket", ""), TOKEN_STREAM)
+    except (InvalidToken, AuthNotConfigured):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
     await websocket.accept()
     try:
         queue = await bus.subscribe()

@@ -9,6 +9,9 @@ En Vercel ambos van a false y la ingesta llega por POST /api/tasks/ingest.
 Tiempo real: WebSocket /api/ws y SSE /api/stream, alimentados por el bus de
 eventos (memoria, o Redis pub/sub si REDIS_URL está definido).
 
+Acceso: login con email + contraseña (/api/auth/*, JWT). Salvo /api/health, /api/meta
+y /api/auth/*, toda la API exige sesión; WebSocket y SSE usan un ticket de 60 s.
+
 OpenAPI/Swagger en /docs, esquema en /openapi.json.
 """
 
@@ -19,12 +22,14 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend.app.api.deps import get_current_user
 from backend.app.api.routes import (
     analytics,
+    auth,
     dashboard,
     health,
     insights,
@@ -102,8 +107,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    # POST /api/tasks/* lo llama un servidor (GitHub Actions), no el navegador
-    allow_methods=["GET"],
+    # POST: login/registro/ticket desde el navegador. /api/tasks/* lo llama un servidor
+    # (GitHub Actions) y no depende de CORS.
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -114,8 +120,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 
-for r in (health, weather, analytics, predictions, dashboard, insights, stream, ws, tasks):
+# Públicas: salud, login/registro. Con credenciales propias: tareas (INGEST_TOKEN) y
+# tiempo real (ticket de 60 s). Todo lo demás exige una sesión de usuario (JWT).
+for r in (health, auth, stream, ws, tasks):
     app.include_router(r.router, prefix="/api")
+for r in (weather, analytics, predictions, dashboard, insights):
+    app.include_router(r.router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 
 @app.get("/", include_in_schema=False)

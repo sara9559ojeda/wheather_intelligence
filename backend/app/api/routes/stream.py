@@ -12,9 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 
+from backend.app.api.deps import require_stream_ticket
 from backend.app.services.events import CLOSED, bus
 
 router = APIRouter(tags=["stream"])
@@ -23,8 +24,9 @@ log = logging.getLogger(__name__)
 _KEEPALIVE_SECONDS = 20
 
 
-@router.get("/stream")
+@router.get("/stream", dependencies=[Depends(require_stream_ticket)])
 async def stream(request: Request) -> EventSourceResponse:
+    """Requiere ``?ticket=`` (POST /api/auth/stream-ticket); ``EventSource`` no admite cabeceras."""
     queue = await bus.subscribe()
 
     async def event_generator():
