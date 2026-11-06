@@ -9,6 +9,7 @@ Tablas:
   cluster_assignments    asignación de cada observación a un cluster
   anomalies              observaciones evaluadas por el detector de anomalías
   ai_analyses            interpretaciones en lenguaje natural generadas por Claude
+  users                  cuentas de acceso al dashboard (login)
 
 Convenciones:
   - todos los timestamps son timezone-aware y se almacenan en UTC
@@ -49,6 +50,28 @@ ALLOWED_SOURCES = (SOURCE_HISTORICAL, SOURCE_REALTIME)
 
 def _ts(**kw) -> Mapped[datetime]:
     return mapped_column(DateTime(timezone=True), **kw)
+
+
+class User(Base):
+    """Cuenta de acceso al dashboard. La contraseña se guarda solo como hash (scrypt)."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # siempre en minúsculas y sin espacios (ver services/users.normalize_email)
+    email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
+    full_name: Mapped[str | None] = mapped_column(String(80))
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    # bloqueo temporal tras demasiados intentos fallidos de login
+    failed_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    locked_until: Mapped[datetime | None] = _ts(nullable=True)
+    created_at: Mapped[datetime] = _ts(server_default=func.now(), nullable=False)
+    last_login_at: Mapped[datetime | None] = _ts(nullable=True)
 
 
 class Location(Base):
