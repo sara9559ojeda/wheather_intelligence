@@ -45,6 +45,9 @@ sse-starlette==2.2.1
 # --- Tiempo real: bus de eventos sobre Redis pub/sub (WebSocket / SSE) ---
 redis==8.1.0
 
+# --- Autenticación: tokens JWT de sesión (las contraseñas usan hashlib.scrypt) ---
+PyJWT==2.10.1
+
 # --- IA generativa (Claude) ---
 anthropic==1.4.0
 
