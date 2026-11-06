@@ -85,7 +85,9 @@ Ejemplo real (`GET /comparison/latest`):
 
 - **Secretos solo en el backend**: `ANTHROPIC_API_KEY` en `.env`, nunca en las
   respuestas ni en el frontend. Open-Meteo no necesita clave.
-- **CORS** restringido a `BACKEND_CORS_ORIGINS`, solo métodos GET.
+- **CORS** restringido a `BACKEND_CORS_ORIGINS`, métodos GET y POST (el POST es
+  el login; ver §10).
+- **Acceso con login**: toda la API de datos exige sesión de usuario (§10).
 - **Validación** de entrada con Pydantic (`Query` con rangos y `pattern`).
 - **Manejo de errores**: *handler* global que registra el *traceback* y devuelve
   un 500 genérico; 404/503 tipados donde corresponde.
@@ -155,6 +157,10 @@ suscripción con `redis.asyncio`. Si Redis se cae, la suscripción avisa y el
 servidor cierra la conexión (1011) para que el cliente reconecte.
 
 ### 9.2 Contrato del WebSocket `GET /api/ws`
+
+Se conecta a `/api/ws?ticket=<ticket>`: el ticket de 60 s se pide con
+`POST /api/auth/stream-ticket` (§10.3) en **cada** (re)conexión. Sin ticket válido
+el servidor rechaza el handshake (cierre 1008 / HTTP 403).
 
 Frames de texto JSON, solo servidor → cliente (lo que mande el cliente se ignora):
 
@@ -238,7 +244,71 @@ hasta que el frontend migre al WebSocket.
 `ping`, cierre 1011/1012, baja de la suscripción), autenticación de
 `/tasks/ingest` (503/401/200/502, ingesta simulada), lifespan con el modo
 serverless y configuración. Las de Redis llevan el marcador `redis`
-(`docker compose up -d redis`). **85 pruebas** en total en verde.
+(`docker compose up -d redis`). **85 pruebas** en total en verde (125 con las de login, §10.4).
+
+---
+
+## 10. Login de usuarios
+
+Toda la API de datos exige una sesión: el dashboard muestra una pantalla de
+inicio de sesión / registro y, sin ella, el backend responde 401.
+
+### 10.1 Endpoints (`/api/auth`)
+
+| Método y ruta | Acceso | Qué hace |
+|---|---|---|
+| `POST /auth/register` | público (si `ALLOW_REGISTRATION=true`) | Crea la cuenta (`email`, `password` 8–128 car., `full_name` opcional) y abre sesión. 201 · 409 email repetido · 403 registro desactivado |
+| `POST /auth/login` | público | Valida credenciales y devuelve `{access_token, token_type, expires_in, user}`. 401 · 429 cuenta bloqueada |
+| `GET /auth/me` | sesión | Datos del usuario de la sesión (el frontend lo usa para validar el token guardado) |
+| `POST /auth/stream-ticket` | sesión | Canjea la sesión por un ticket de 60 s para WebSocket/SSE (§10.3) |
+
+Rutas **públicas**: `/api/health`, `/api/meta`, `/api/auth/register|login`. Con
+credenciales propias: `/api/tasks/ingest` (`INGEST_TOKEN`) y `/api/ws`,
+`/api/stream` (ticket). **Todo lo demás** (`/dashboard`, `/weather/*`, `/stats`,
+`/anomalies`, `/clusters`, `/predictions/*`, `/insights`, `/model/*`…) exige
+`Authorization: Bearer <access_token>`.
+
+### 10.2 Decisiones de seguridad
+
+- **Contraseñas**: `hashlib.scrypt` de la biblioteca estándar (N=2^14, r=8, p=1,
+  sal aleatoria de 16 bytes), guardadas como `scrypt$n$r$p$sal$hash`; los
+  parámetros viajan en el hash, así que se pueden endurecer sin romper cuentas.
+  Comparación en tiempo constante. Máximo 128 caracteres para acotar el coste.
+- **Sesión sin estado**: JWT HS256 firmado con `AUTH_SECRET_KEY`, con `exp`,
+  `iat`, `sub` y `typ` obligatorios; caduca a las `AUTH_TOKEN_MINUTES` (12 h). Se
+  rechazan tokens sin firma (`alg: none`), con otra clave, caducados o de otro
+  tipo. En cada petición se comprueba que el usuario siga existiendo y activo.
+- **Sin secreto no hay acceso**: con `AUTH_SECRET_KEY` vacío el login y la API de
+  datos responden 503; nunca queda abierta.
+- **Mensajes que no filtran información**: "email o contraseña incorrectos" es
+  idéntico para un usuario inexistente y para una contraseña errónea, y en el
+  primer caso se verifica contra un hash de relleno para que tarden lo mismo.
+- **Bloqueo por fuerza bruta**: 5 fallos seguidos bloquean la cuenta 15 min
+  (429 con `Retry-After`), incluso con la contraseña correcta; un acierto
+  reinicia el contador. Se guarda en la BD, así que vale con varias instancias
+  serverless. No sustituye a un límite de peticiones por IP (WAF / Vercel Firewall).
+- **Registro**: abierto por defecto para la demo. En producción, `ALLOW_REGISTRATION=false`
+  y alta por CLI: `docker compose exec backend python -m backend.app.create_user <email>`.
+
+### 10.3 Tickets para WebSocket y SSE
+
+`WebSocket` y `EventSource` no permiten cabeceras en el navegador, y meter la
+sesión (12 h) en la URL la dejaría en los logs de acceso. Por eso el cliente pide
+`POST /auth/stream-ticket` y conecta con `?ticket=…`: un JWT de tipo `stream`
+válido 60 s que **no sirve** para la API REST (y la sesión no sirve como ticket).
+Lo que quede en un log caduca al instante. Como `EventSource` reutilizaría la
+URL caducada al reconectar, el frontend gestiona la reconexión él mismo, con un
+ticket nuevo cada vez.
+
+### 10.4 Pruebas
+
+`backend/tests/test_auth.py` (43 casos): hash y verificación de contraseñas,
+tokens (ida y vuelta, caducado, firma ajena, `alg: none`, tipos no
+intercambiables), todas las rutas protegidas devuelven 401 sin sesión, ticket y
+sesión no son intercambiables, WebSocket/SSE rechazan sin ticket, 503 sin
+secreto, CORS del POST, validación de entrada y —con PostgreSQL— el flujo
+registro → login → `/me` → ticket, email repetido, bloqueo por intentos,
+usuario desactivado o borrado.
 
 ---
 

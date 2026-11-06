@@ -125,7 +125,7 @@ backend/
   app/
     main.py        app FastAPI (lifespan: backfill + scheduler), CORS, errores
     core/config.py configuración tipada leída de .env
-    api/routes/    endpoints REST (health, weather, analytics, predictions, dashboard, ...),
+    api/routes/    endpoints REST (health, auth, weather, analytics, predictions, dashboard, ...),
                    tiempo real (ws = WebSocket, stream = SSE) y tasks (POST /api/tasks/ingest)
     schemas/       modelos Pydantic de respuesta
     scheduler/     APScheduler: ingesta en tiempo real (30 min) + comprobación de reentrenamiento (24 h)
@@ -202,6 +202,26 @@ ingesta de cada 30 min la dispara [`.github/workflows/ingest.yml`](.github/workf
 contra `POST /api/tasks/ingest` (`Authorization: Bearer $INGEST_TOKEN`; sin
 token configurado el endpoint queda deshabilitado). Las migraciones se aplican a
 mano (`alembic upgrade head`) contra la URL directa de Neon.
+
+## Login
+
+Toda la API de datos exige sesión (JWT); el dashboard abre en una pantalla de
+inicio de sesión / registro. Necesita `AUTH_SECRET_KEY` en `.env` (sin él, la API
+responde 503 en vez de quedar abierta):
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"   # -> AUTH_SECRET_KEY=...
+```
+
+El registro público viene activado (`ALLOW_REGISTRATION=true`). Para cerrarlo y
+dar de alta cuentas a mano:
+
+```bash
+docker compose exec backend python -m backend.app.create_user ana@example.com --name "Ana"
+```
+
+Contraseñas con scrypt, bloqueo tras 5 intentos fallidos, y tickets de 60 s para
+el WebSocket. Detalle y decisiones en [`docs/fase-6-backend-api.md` §10](docs/fase-6-backend-api.md).
 
 ## Reproducibilidad
 
