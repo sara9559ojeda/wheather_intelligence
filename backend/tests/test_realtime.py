@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from backend.app import main as app_main
 from backend.app.api.routes import ws as ws_route
 from backend.app.core.config import Settings, settings
+from backend.app.core.security import create_stream_ticket
 from backend.app.db.session import _engine_kwargs
 from backend.app.main import app
 from backend.app.scheduler import jobs
@@ -33,6 +34,16 @@ from backend.app.services.events import CLOSED, EventBus
 
 REDIS_TEST_URL = os.environ.get("REDIS_TEST_URL", "redis://127.0.0.1:6379/15")
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _auth_secret(monkeypatch):
+    """El WebSocket exige un ticket firmado: se fija un secreto de pruebas."""
+    monkeypatch.setattr(settings, "auth_secret_key", "secreto-de-pruebas-realtime")
+
+
+def _ws_url() -> str:
+    return f"/api/ws?ticket={create_stream_ticket(1)}"
 
 
 def _wait_until(predicate, timeout: float = 3.0) -> bool:
@@ -108,7 +119,7 @@ def memory_bus(monkeypatch):
 
 
 def test_websocket_receives_published_event_and_ping(memory_bus):
-    with client.websocket_connect("/api/ws") as conn:
+    with client.websocket_connect(_ws_url()) as conn:
         hello = conn.receive_json()
         assert hello["type"] == "connected"
         assert memory_bus.n_subscribers == 1
@@ -126,7 +137,7 @@ def test_websocket_receives_published_event_and_ping(memory_bus):
 
 
 def test_websocket_closes_when_bus_subscription_dies(memory_bus):
-    with client.websocket_connect("/api/ws") as conn:
+    with client.websocket_connect(_ws_url()) as conn:
         conn.receive_json()  # connected
         sub = next(iter(memory_bus._subs.values()))
         sub.loop.call_soon_threadsafe(sub.queue.put_nowait, CLOSED)
@@ -138,7 +149,7 @@ def test_websocket_closes_when_bus_subscription_dies(memory_bus):
 
 def test_websocket_max_duration_closes_gracefully(memory_bus, monkeypatch):
     monkeypatch.setattr(settings, "ws_max_connection_seconds", 1)
-    with client.websocket_connect("/api/ws") as conn:
+    with client.websocket_connect(_ws_url()) as conn:
         assert conn.receive_json()["data"]["max_connection_seconds"] == 1
         while True:
             msg = conn.receive()
@@ -297,7 +308,7 @@ def test_websocket_through_redis(redis_channel, monkeypatch):
     ws_bus = EventBus(REDIS_TEST_URL, channel=redis_channel)
     other_instance = EventBus(REDIS_TEST_URL, channel=redis_channel)
     monkeypatch.setattr(ws_route, "bus", ws_bus)
-    with client.websocket_connect("/api/ws") as conn:
+    with client.websocket_connect(_ws_url()) as conn:
         assert conn.receive_json()["type"] == "connected"
         other_instance.publish("model_updated", {"status": "promoted",
                                                  "promoted_horizons": ["1"]})

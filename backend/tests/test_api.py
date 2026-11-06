@@ -7,13 +7,24 @@ poblada (marcador ``db``):  pytest -m db
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.app.api.deps import get_current_user
 from backend.app.main import app
 
 pytestmark = pytest.mark.db
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _logged_in_user():
+    """Estas pruebas cubren los datos, no el login (ver test_auth.py): sesión simulada."""
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=0)
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 def test_health():
