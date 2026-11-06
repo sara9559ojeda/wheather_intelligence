@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     # algo menos que la duración máxima de la función (p. ej. 280 con maxDuration=300).
     ws_max_connection_seconds: int = 0
 
+    # --- Autenticación de usuarios (login del dashboard) ---
+    # Secreto con el que se firman los JWT. Vacío = login deshabilitado (503) y la API
+    # de datos queda cerrada: nunca abierta. Genera uno largo, p. ej.:
+    #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+    auth_secret_key: str = ""
+    auth_token_minutes: int = 720        # duración de la sesión (12 h)
+    # Registro público de cuentas. En producción, ponlo a false y crea los usuarios
+    # con `python -m backend.app.create_user`.
+    allow_registration: bool = True
+
     # --- Endpoint protegido de tareas (POST /api/tasks/ingest) ---
     # Vacío = endpoint deshabilitado (503). Se envía como "Authorization: Bearer <token>".
     ingest_token: str = ""
