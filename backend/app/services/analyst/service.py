@@ -177,9 +177,11 @@ def ask(
     unrecognized = resolved is None
     det = tpl.deterministic_answer(resolved or "overview", ctx, detail)
     det_text = det.text
+    notice = None
     if unrecognized:
-        det_text = ("No tengo una respuesta preparada para esa pregunta; este es el resumen de lo que "
-                    "el sistema sabe ahora. " + det_text)
+        notice = ("No tengo una respuesta preparada para esa pregunta; este es el resumen de lo que "
+                  "el sistema sabe ahora.")
+        det_text = f"{notice} {det_text}"
 
     base = {
         "intent": resolved or "overview", "question": shown,
@@ -189,7 +191,7 @@ def ask(
         "context_as_of": datetime.fromisoformat(ctx["generado_utc"]),
     }
     deterministic = {**base, "mode": "deterministic", "answer": det_text, "sections": det.sections,
-                     "model": None, "fallback_reason": None}
+                     "model": None, "fallback_reason": None, "notice": notice}
 
     if not use_ai:
         return {**deterministic, "fallback_reason": "ia_desactivada_por_el_usuario"}

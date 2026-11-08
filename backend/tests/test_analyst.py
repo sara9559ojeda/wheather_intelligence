@@ -151,6 +151,17 @@ def test_works_without_any_claude_key(analyst_city, fresh_limits, monkeypatch):
     assert out["availability"]["normalidad"] is True
     assert out["availability"]["pronostico"] is False         # ciudad sin modelos: se declara
     assert out["limitations"]
+    assert out["notice"] is None                              # pregunta reconocida: sin aviso
+
+
+@pytest.mark.db
+def test_unrecognized_question_says_so(analyst_city, fresh_limits, monkeypatch):
+    slug, _ = analyst_city
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    with SessionLocal() as s:
+        out = svc.ask(s, slug, user_id=1, question="¿Quién ganó el mundial?")
+    assert out["mode"] == "deterministic" and out["intent"] == "overview"
+    assert out["notice"] and "No tengo una respuesta preparada" in out["notice"]
 
 
 @pytest.mark.db

@@ -329,6 +329,8 @@ class AnalystAnswer(BaseModel):
     limitations: list[str] = []
     availability: dict[str, bool] = {}
     fallback_reason: str | None = None
+    #: Aviso para el usuario cuando la respuesta determinista no corresponde a su pregunta literal.
+    notice: str | None = None
     model: str | None = None
     generated_at: datetime
     context_as_of: datetime | None = None
