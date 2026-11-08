@@ -3,7 +3,8 @@
 Se usan en Data Understanding (fase 2) para contar valores fuera de rango y,
 más adelante, en el ETL para rechazar o marcar observaciones inválidas.
 
-Los rangos son "físicamente plausibles para Madrid-Barajas", deliberadamente
+Los rangos son "físicamente plausibles" para cualquier ciudad del catálogo
+(del nivel del mar a ~3000 m, del trópico al clima continental), deliberadamente
 amplios: el objetivo es detectar errores groseros (sensor, unidad, signo),
 NO recortar extremos meteorológicos reales.
 """
@@ -13,12 +14,12 @@ from __future__ import annotations
 # ---- Variables Open-Meteo (nombres canónicos del proyecto) -------------------
 # (mínimo, máximo) inclusivos. None = sin límite por ese lado.
 PLAUSIBLE_RANGES: dict[str, tuple[float | None, float | None]] = {
-    "temperature_2m": (-25.0, 48.0),          # récord Madrid ~ -10 / +42 °C
+    "temperature_2m": (-25.0, 48.0),          # récords: Madrid ~ -10 / +42 °C, Bogotá ~ -1 / +25 °C
     "relative_humidity_2m": (0.0, 100.0),
-    "dew_point_2m": (-35.0, 30.0),
-    "apparent_temperature": (-35.0, 55.0),
-    "surface_pressure": (905.0, 972.0),        # a ~618 m la presión ronda 946 hPa
-    "pressure_msl": (975.0, 1050.0),
+    "dew_point_2m": (-35.0, 35.0),
+    "apparent_temperature": (-35.0, 60.0),
+    "surface_pressure": (500.0, 1090.0),      # Madrid (618 m) ~946 hPa; Bogotá (2600 m) ~745 hPa
+    "pressure_msl": (900.0, 1085.0),
     "precipitation": (0.0, 60.0),              # mm/h
     "rain": (0.0, 60.0),
     "snowfall": (0.0, 30.0),                   # cm/h
@@ -30,8 +31,8 @@ PLAUSIBLE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "wind_direction_10m": (0.0, 360.0),
     "wind_gusts_10m": (0.0, 180.0),
     "wind_speed_100m": (0.0, 160.0),
-    "shortwave_radiation": (0.0, 1100.0),      # W/m²
-    "direct_radiation": (0.0, 1000.0),
+    "shortwave_radiation": (0.0, 1400.0),      # W/m²
+    "direct_radiation": (0.0, 1300.0),
     "diffuse_radiation": (0.0, 750.0),
     "et0_fao_evapotranspiration": (-0.2, 2.5), # mm/h
 }

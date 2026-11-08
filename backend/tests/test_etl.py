@@ -24,7 +24,7 @@ def _sample_df() -> pd.DataFrame:
             ),
             "temperature_2m": [3.1, 2.6, float("nan")],
             "relative_humidity_2m": [71, 74, 80],
-            "surface_pressure": [945.0, 946.1, 999.9],   # 999.9 fuera de rango
+            "surface_pressure": [945.0, 946.1, 1200.0],   # 1200 hPa fuera de rango
             "wind_direction_10m": [270, 268, 265],
             "weather_code": [0, 1, 61],
             "is_day": [0, 0, 1],
