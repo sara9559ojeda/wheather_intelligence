@@ -146,7 +146,7 @@ class OpenMeteoArchiveClient:
 
         # Solo se cachea un año natural completo (un año parcial cambiaría cada día).
         cache_file = (
-            self.cache_dir / f"open_meteo_{year}.parquet"
+            self.cache_dir / f"open_meteo_{self.latitude:.3f}_{self.longitude:.3f}_{year}.parquet"
             if (self.cache_dir and is_full_year)
             else None
         )

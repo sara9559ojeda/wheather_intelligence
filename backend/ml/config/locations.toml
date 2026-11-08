@@ -1,0 +1,58 @@
+# =====================================================================
+# Catálogo de ciudades. Cada entrada hereda de location.toml todo lo que no
+# define aquí (variables horarias, APIs, reintentos). Madrid-Barajas vive en
+# location.toml y es la ubicación por defecto.
+#
+# Para añadir una ciudad: nueva entrada [[locations]] y
+#     python -m backend.ml.add_location --slug <slug>
+# (descarga ERA5, carga la BD, prepara el dataset y entrena todo).
+#
+# start_date: 2010 en vez de 2000 para las ciudades nuevas. 16 años de
+# historial bastan para el ciclo anual y reducen un 35 % el espacio en BD
+# (importante en un Postgres gestionado de plan gratuito).
+# =====================================================================
+
+[[locations]]
+slug       = "bogota"
+name       = "Bogotá"
+latitude   = 4.7110
+longitude  = -74.0721
+timezone   = "America/Bogota"
+country    = "CO"
+start_date = "2010-01-01"
+
+[[locations]]
+slug       = "medellin"
+name       = "Medellín"
+latitude   = 6.2442
+longitude  = -75.5812
+timezone   = "America/Bogota"
+country    = "CO"
+start_date = "2010-01-01"
+
+[[locations]]
+slug       = "cali"
+name       = "Cali"
+latitude   = 3.4516
+longitude  = -76.5320
+timezone   = "America/Bogota"
+country    = "CO"
+start_date = "2010-01-01"
+
+[[locations]]
+slug       = "barranquilla"
+name       = "Barranquilla"
+latitude   = 10.9685
+longitude  = -74.7813
+timezone   = "America/Bogota"
+country    = "CO"
+start_date = "2010-01-01"
+
+[[locations]]
+slug       = "cartagena"
+name       = "Cartagena"
+latitude   = 10.3910
+longitude  = -75.4794
+timezone   = "America/Bogota"
+country    = "CO"
+start_date = "2010-01-01"
