@@ -146,6 +146,9 @@ class ModelRun(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     model_type: Mapped[str] = mapped_column(String(40), nullable=False)
     horizon_hours: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     target: Mapped[str] = mapped_column(String(40), nullable=False, default="temperature_2m")
@@ -200,6 +203,9 @@ class ClusterModel(Base):
     __tablename__ = "cluster_models"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     k: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     silhouette: Mapped[float | None] = mapped_column(Numeric(6, 4))
     trained_at: Mapped[datetime] = _ts(server_default=func.now(), nullable=False)
