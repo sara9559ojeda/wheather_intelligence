@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.db.models import Location, WeatherObservation
@@ -25,6 +25,21 @@ _NUMERIC = [c for c in _OBSERVATION_COLUMNS if c not in ("observed_at", "is_day"
 
 def get_location(session: Session, slug: str) -> Location | None:
     return session.scalar(select(Location).where(Location.slug == slug))
+
+
+def latest_observation(session: Session, location_id: int) -> WeatherObservation | None:
+    """Última observación YA ocurrida (``observed_at <= ahora``).
+
+    El backfill guarda por adelantado la hora siguiente con el valor *previsto* por
+    Open-Meteo; esa fila no es una observación y no debe mostrarse como «actual».
+    """
+    return session.scalar(
+        select(WeatherObservation)
+        .where(WeatherObservation.location_id == location_id,
+               WeatherObservation.observed_at <= func.now())
+        .order_by(WeatherObservation.observed_at.desc())
+        .limit(1)
+    )
 
 
 def load_observations_df(
