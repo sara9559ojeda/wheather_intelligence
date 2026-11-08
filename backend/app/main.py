@@ -28,9 +28,12 @@ from fastapi.responses import JSONResponse
 
 from backend.app.api.deps import get_current_user
 from backend.app.api.routes import (
+    analysis,
+    analyst,
     analytics,
     auth,
     dashboard,
+    evaluation,
     health,
     insights,
     locations,
@@ -128,7 +131,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # tiempo real (ticket de 60 s). Todo lo demás exige una sesión de usuario (JWT).
 for r in (health, auth, stream, ws, tasks):
     app.include_router(r.router, prefix="/api")
-for r in (locations, weather, analytics, predictions, dashboard, insights):
+for r in (
+    locations, weather, analysis, analyst, evaluation, analytics, predictions, dashboard, insights,
+):
     app.include_router(r.router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 
