@@ -219,6 +219,11 @@ def main() -> None:
                     conflict_index=["cluster_model_id", "observation_id"],
                     label="cluster_assignments")
 
+        # Perfil interpretable de cada régimen (etiquetas, estacionalidad, permanencia,
+        # transiciones): se guarda con el modelo para que la API no lo recalcule.
+        from backend.app.services.analysis.regimes import ensure_profile
+        ensure_profile(session, cm, loc)
+
     artifact = ARTIFACTS_DIR / f"kmeans_{cfg.slug}.joblib"
     joblib.dump(
         {"scaler": model.scaler, "kmeans": model.kmeans, "features": model.features,
