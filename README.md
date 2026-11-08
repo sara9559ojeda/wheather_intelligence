@@ -1,7 +1,9 @@
 # Weather Intelligence
 
 Plataforma de minería de datos, Machine Learning e IA generativa para el análisis
-meteorológico de **Madrid-Barajas**, siguiendo la metodología **CRISP-ML(Q)**.
+meteorológico de **varias ciudades** (Madrid-Barajas y Bogotá, Medellín, Cali, Barranquilla y
+Cartagena), siguiendo la metodología **CRISP-ML(Q)**. Cada ciudad tiene sus propios datos,
+modelos, regímenes y anomalías, y se elige desde un selector en la app.
 
 Este repositorio contiene el **backend** (API FastAPI, pipeline de datos, modelos
 de ML, base de datos y documentación). El dashboard vive en su propio repo:
@@ -73,6 +75,12 @@ python -m backend.ml.mining.run_anomalies              # Isolation Forest -> ano
 # 10. Machine Learning: predicción de temperatura (~4 min)
 python -m backend.ml.modeling.run_training             # -> model_runs, predictions, artefactos
 
+# 10b. Más ciudades (opcional): descarga, entrena y publica una ciudad del catálogo
+#      (backend/ml/config/locations.toml). Tarda ~10-15 min por ciudad por la descarga ERA5.
+python -m backend.ml.add_location --slug bogota        # o --all para todas las del catálogo
+#      Al terminar aparece en GET /api/locations y en el selector de la app.
+#      Para añadir otra ciudad basta un bloque [[locations]] nuevo en locations.toml.
+
 # 11. API backend (con recarga en desarrollo)
 backend/.venv/Scripts/uvicorn backend.app.main:app --reload   # http://localhost:8000/docs
 
@@ -141,7 +149,7 @@ backend/
       events.py    bus de eventos de tiempo real (memoria o Redis pub/sub)
   requirements.txt  pipelines offline: incluye ../requirements.txt + pyarrow, meteostat
   ml/
-    config/        location.toml — fuente de verdad de ubicación y parámetros
+    config/        location.toml (Madrid + parámetros comunes) y locations.toml (catálogo de ciudades)
     acquisition/   descarga de datos (Open-Meteo, Meteostat)
     preparation/   limpieza + partición cronológica + build_dataset
     mining/        clustering (K-Means) y anomalías (Isolation Forest)
