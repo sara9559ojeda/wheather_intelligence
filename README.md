@@ -29,6 +29,7 @@ original: [`docs/fase-1-analisis-y-arquitectura.md`](docs/fase-1-analisis-y-arqu
 | 8 | Frontend (React + Tailwind + Recharts) + dashboard | ✅ Cerrada |
 | 9 | Retraining con criterio de promoción + robustez | ✅ Cerrada |
 | 10 | Documentación académica | ✅ Cerrada |
+| 11 | Inteligencia contextual y explicable (normalidad, regímenes, evaluación real, confiabilidad, analista) | ✅ Implementada — [`docs/fase-11-inteligencia-contextual.md`](docs/fase-11-inteligencia-contextual.md) |
 
 ---
 
@@ -144,6 +145,9 @@ backend/
       prediction/  inferencia: carga los artefactos y predice
       ingestion/   WeatherProvider (adapter) + Open-Meteo Forecast + ETL tiempo real
       historical/  comparación con el histórico (percentiles condicionados, régimen, anomalía)
+      analysis/    normalidad histórica (F1) y regímenes (F2), por ciudad
+      evaluation/  registro y verificación de pronósticos (F3), calibración e intervalos (F4)
+      analyst/     analista con respaldo determinista, verificación numérica y límites (F5)
       claude/      capa de interpretación (prompt + cliente Anthropic + caché + fallback)
       dashboard.py ensamblado de /dashboard y del resumen para Claude
       events.py    bus de eventos de tiempo real (memoria o Redis pub/sub)
@@ -180,6 +184,30 @@ resumen estructurado sin el texto interpretado. Para activarlo, añade la clave 
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Inteligencia contextual (fase 11)
+
+Cinco módulos por ciudad, en las pestañas **Análisis histórico**, **Inteligencia predictiva**
+y **Analista IA** del dashboard:
+
+| Módulo | Endpoint |
+|---|---|
+| ¿Qué tan normal es el tiempo de hoy? | `GET /api/analysis/normality` |
+| Patrones (regímenes) de la ciudad | `GET /api/analysis/regimes` |
+| ¿Qué tan bien predice Weather Intelligence? | `GET /api/evaluation/summary`, `/api/evaluation/pairs` |
+| ¿Qué tan confiable es el pronóstico? | `GET /api/forecast/reliability` |
+| Pregúntale a Weather Intelligence | `GET /api/analyst/questions`, `POST /api/analyst/ask` |
+
+Todos exigen sesión y aceptan `?location=<slug>`. Cuando no hay datos suficientes lo dicen
+(«preliminar», «el registro acaba de empezar») en vez de inventar métricas: el registro de
+pronósticos reales empezó el 8 nov 2026 y las métricas aparecen conforme se verifican.
+El «observado» es reanálisis/modelo de Open-Meteo, **no** una estación. El analista funciona sin
+`ANTHROPIC_API_KEY` (respuestas deterministas con los datos reales); con clave, Claude solo recibe
+el contexto estructurado —nunca credenciales ni tokens— y cualquier cifra que no esté respaldada
+descarta su texto. Ajustes opcionales: `ANALYST_TIMEOUT_SECONDS`, `ANALYST_AI_PER_HOUR`,
+`ANALYST_ASKS_PER_HOUR`, `ANALYST_CACHE_MINUTES`. Para evaluar offline la cobertura de los
+intervalos: `python -m backend.ml.modeling.evaluate_intervals --all`.
+Métodos, límites, hallazgos y pruebas: [`docs/fase-11-inteligencia-contextual.md`](docs/fase-11-inteligencia-contextual.md).
+
 ## Reentrenamiento (fase 9)
 
 El scheduler comprueba cada `RETRAIN_CHECK_INTERVAL_HOURS` (24 h por defecto)
@@ -198,7 +226,7 @@ El dashboard recibe avisos en tiempo real por **WebSocket** (`ws://…/api/ws`) 
 por SSE (`/api/stream`, se mantiene mientras el frontend migra). Ambos salen del
 mismo bus de eventos: en memoria si `REDIS_URL` está vacío, **Redis pub/sub** si
 no (Docker Compose levanta `redis:7-alpine`; en Vercel, Upstash). Mensajes del
-WebSocket (JSON): `{"type": "connected"|"observation"|"model_updated", "data": {...}}`
+WebSocket (JSON): `{"type": "connected"|"observation"|"model_updated"|"forecasts_verified", "data": {...}}`
 y `{"type": "ping"}` cada 25 s sin tráfico; el cliente debe reconectar con
 *backoff* al cerrarse la conexión. Contrato completo en
 [`docs/fase-6-backend-api.md` §9](docs/fase-6-backend-api.md).
