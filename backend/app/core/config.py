@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-haiku-4-5"
     ai_cache_minutes: int = 60       # no re-llamar a Claude si hay análisis más nuevo
     ai_min_gap_minutes: int = 30     # separación mínima entre generaciones automáticas
+    # Analista (preguntas contextuales)
+    analyst_timeout_seconds: float = 25.0    # tiempo máximo de la llamada a Claude
+    analyst_ai_per_hour: int = 20            # llamadas a Claude por usuario y hora
+    analyst_asks_per_hour: int = 120         # preguntas totales (con o sin IA) por usuario y hora
+    analyst_cache_minutes: int = 10          # respuestas de IA a preguntas sugeridas
 
     # --- Open-Meteo ---
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"

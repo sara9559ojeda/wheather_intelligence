@@ -33,11 +33,15 @@ def is_configured() -> bool:
     return bool(settings.anthropic_api_key.strip())
 
 
-def call_claude(system: str, user_message: str, *, max_tokens: int = 1200) -> ClaudeResponse:
+def call_claude(
+    system: str, user_message: str, *, max_tokens: int = 1200, timeout: float = 45.0
+) -> ClaudeResponse:
     if not is_configured():
         raise ClaudeUnavailable("ANTHROPIC_API_KEY no configurada")
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=45.0)
+    client = anthropic.Anthropic(
+        api_key=settings.anthropic_api_key, timeout=timeout, max_retries=1
+    )
     try:
         resp = client.messages.create(
             model=settings.anthropic_model,
