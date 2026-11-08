@@ -360,6 +360,8 @@ def analyze_regimes(session: Session, slug: str) -> dict:
 
     since = datetime.now(UTC) - timedelta(days=TIMELINE_DAYS)
     recent = load_observations_df(session, slug, since=since)
+    # excluye las horas futuras que el backfill guarda por adelantado con el valor previsto
+    recent = recent[recent["timestamp"] <= pd.Timestamp.now(tz="UTC")]
     if recent.empty:
         out["status"] = "partial"
         notes.append("No hay observaciones recientes para situar el régimen actual.")
