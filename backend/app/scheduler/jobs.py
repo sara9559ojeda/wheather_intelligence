@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
+from backend.app.services.evaluation.forecast_log import verify_pending
 from backend.app.services.events import bus
 from backend.app.services.ingestion.open_meteo import OpenMeteoForecastClient
 from backend.app.services.ingestion.realtime import ingest_current
@@ -62,6 +63,33 @@ def _ingest_location(slug: str, latitude: float, longitude: float) -> dict | Non
     return summary
 
 
+def run_verification() -> dict[str, int]:
+    """Verifica los pronósticos cuya hora objetivo ya pasó y avisa por el bus (idempotente)."""
+    from sqlalchemy import select
+
+    from backend.app.db.models import Location
+
+    session = SessionLocal()
+    try:
+        by_loc = verify_pending(session)
+        slugs = {}
+        if by_loc:
+            slugs = dict(session.execute(
+                select(Location.id, Location.slug).where(Location.id.in_(list(by_loc)))).all())
+        session.commit()
+    except Exception:  # noqa: BLE001 — la verificación nunca debe tumbar la ingesta
+        session.rollback()
+        log.exception("Fallo verificando pronósticos")
+        return {}
+    finally:
+        session.close()
+    result = {slugs[i]: n for i, n in by_loc.items() if i in slugs}
+    for slug, n in result.items():
+        log.info("[%s] %d pronósticos verificados", slug, n)
+        bus.publish("forecasts_verified", {"location": slug, "n_verified": n})
+    return result
+
+
 def run_ingest() -> dict | None:
     """Una pasada de ingesta de TODAS las ciudades activas (el fallo de una no frena a las demás).
 
@@ -80,6 +108,7 @@ def run_ingest() -> dict | None:
             log.exception("Fallo en la ingesta de %s", slug)
             if len(targets) == 1:
                 raise
+    run_verification()
     if failures == len(targets):
         raise RuntimeError("Falló la ingesta de todas las ubicaciones")
     return summaries.get(settings.wi_location_slug) or next(

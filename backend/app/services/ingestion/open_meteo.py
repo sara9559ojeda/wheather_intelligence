@@ -74,6 +74,20 @@ class OpenMeteoForecastClient:
         data = self._get({"current": ",".join(_CURRENT_VARS)})
         return _coerce(data["current"])
 
+    def get_hourly_forecast(self) -> dict[datetime, float]:
+        """Pronóstico horario de temperatura de Open-Meteo para hoy y mañana (UTC).
+
+        Se captura en el momento de emitir NUESTRO pronóstico para compararlos después
+        con justicia: es lo que Open-Meteo decía entonces, no una reconstrucción.
+        """
+        data = self._get({"hourly": "temperature_2m", "forecast_days": 2})
+        h = data["hourly"]
+        out: dict[datetime, float] = {}
+        for t, v in zip(h["time"], h["temperature_2m"], strict=True):
+            if v is not None:
+                out[pd.to_datetime(t, utc=True).to_pydatetime()] = float(v)
+        return out
+
     def get_recent_hourly(self, past_days: int = 3) -> list[ObservationPayload]:
         """Serie horaria continua de los últimos ``past_days`` días hasta la hora actual.
 

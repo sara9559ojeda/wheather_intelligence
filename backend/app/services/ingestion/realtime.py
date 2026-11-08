@@ -18,6 +18,11 @@ from sqlalchemy.orm import Session
 from backend.app.db.models import Anomaly, ModelRun, Prediction, WeatherObservation
 from backend.app.db.queries import get_location, load_observations_df
 from backend.app.services.artifacts import get_predictor
+from backend.app.services.evaluation.forecast_log import (
+    missing_for_base_time,
+    record_forecasts,
+)
+from backend.app.services.evaluation.uncertainty import apply_calibration
 from backend.app.services.events import bus
 from backend.app.services.historical.comparison import compare
 from backend.app.services.ingestion.weather_provider import ObservationPayload, WeatherProvider
@@ -122,7 +127,7 @@ def ingest_current(session: Session, provider: WeatherProvider, slug: str) -> di
     _upsert(session, loc.id, payload, "realtime", refresh=True)
     session.flush()
 
-    summary = _process(session, slug, loc.id, payload)
+    summary = _process(session, slug, loc.id, payload, provider)
     bus.publish("observation", {
         "location": slug,
         "observed_at": payload["observed_at"].isoformat(),
@@ -149,7 +154,38 @@ def _active_champions(session: Session, location_id: int) -> dict[int, int]:
     return {int(h): int(i) for h, i in rows}
 
 
-def _process(session: Session, slug: str, location_id: int, payload: ObservationPayload) -> dict:
+def _reference_forecast(provider: WeatherProvider | None) -> dict[datetime, float] | None:
+    """Pronóstico de Open-Meteo del momento (opcional: si falla, se registra sin él)."""
+    fetch = getattr(provider, "get_hourly_forecast", None)
+    if fetch is None:
+        return None
+    try:
+        return fetch()
+    except Exception as exc:  # noqa: BLE001 — la referencia nunca debe romper la ingesta
+        log.warning("Sin pronóstico de referencia de Open-Meteo: %s", exc)
+        return None
+
+
+def _log_forecasts(session: Session, location_id: int, preds: list, recent: pd.DataFrame,
+                   champions: dict[int, int], provider: WeatherProvider | None) -> None:
+    """Registra en ``forecast_log`` los pronósticos recién emitidos (idempotente)."""
+    if not preds:
+        return
+    base_time = preds[0].base_time.to_pydatetime()
+    horizons = [p.horizon_hours for p in preds]
+    if not missing_for_base_time(session, location_id, base_time, horizons):
+        return      # esta hora ya está registrada: se conserva la primera emisión
+    last_temp = recent["temperature_2m"].iloc[-1]
+    persistence = None if pd.isna(last_temp) else round(float(last_temp), 2)
+    n = record_forecasts(
+        session, location_id, preds, persistence_temp=persistence,
+        reference=_reference_forecast(provider), champions=champions,
+    )
+    log.info("forecast_log: %d pronósticos registrados (base %s)", n, base_time)
+
+
+def _process(session: Session, slug: str, location_id: int, payload: ObservationPayload,
+             provider: WeatherProvider | None = None) -> dict:
     observed_at: datetime = payload["observed_at"]
     values = {k: payload.get(k) for k in _COMPARE_KEYS}
 
@@ -178,13 +214,18 @@ def _process(session: Session, slug: str, location_id: int, payload: Observation
     predictions: list[dict] = []
     predictor = get_predictor(slug)
     if predictor is not None:
+        # SIN FUGA: el backfill guarda por adelantado filas de horas futuras con el valor
+        # PREVISTO por Open-Meteo; la última observación real es la de esta hora.
         recent = _recent_observations_df(session, slug)
+        recent = recent[recent["timestamp"] <= pd.Timestamp(observed_at)]
         try:
             preds = predictor.predict_from_observations(recent)
         except ValueError as exc:
             log.warning("Sin predicción (%s)", exc)
             preds = []
+        apply_calibration(session, location_id, preds)
         champions = _active_champions(session, location_id)
+        _log_forecasts(session, location_id, preds, recent, champions, provider)
         for p in preds:
             predictions.append(p.as_dict())
             run_id = champions.get(p.horizon_hours)

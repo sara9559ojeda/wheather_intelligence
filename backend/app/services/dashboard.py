@@ -16,7 +16,7 @@ from backend.app.db.models import (
     ModelRun,
     WeatherObservation,
 )
-from backend.app.db.queries import get_location, load_observations_df
+from backend.app.db.queries import get_location, latest_observation, load_observations_df
 from backend.app.schemas import (
     AnomalyOut,
     CurrentWeatherOut,
@@ -27,8 +27,8 @@ from backend.app.schemas import (
     ObservationOut,
 )
 from backend.app.schemas.models import ClusterModelOut, ClusterOut
-from backend.app.services.artifacts import get_predictor
 from backend.app.services.historical.comparison import compare
+from backend.app.services.prediction.live import live_forecasts
 
 log = logging.getLogger(__name__)
 _COMPARE_KEYS = [
@@ -37,23 +37,9 @@ _COMPARE_KEYS = [
 ]
 
 
-def _latest(db: Session, location_id: int) -> WeatherObservation | None:
-    return db.scalar(
-        select(WeatherObservation)
-        .where(WeatherObservation.location_id == location_id)
-        .order_by(WeatherObservation.observed_at.desc())
-        .limit(1)
-    )
-
-
 def _predictions(db: Session, slug: str) -> list[HorizonPredictionOut]:
-    predictor = get_predictor(slug)
-    if predictor is None:
-        return []
-    recent = load_observations_df(db, slug, last_n=72)
     try:
-        return [HorizonPredictionOut(**p.as_dict())
-                for p in predictor.predict_from_observations(recent)]
+        return [HorizonPredictionOut(**p.as_dict()) for p in live_forecasts(db, slug)]
     except ValueError as exc:
         log.warning("Sin predicciones para el dashboard: %s", exc)
         return []
@@ -142,7 +128,7 @@ def build_dashboard(db: Session, slug: str) -> DashboardOut:
     loc = get_location(db, slug)
     if loc is None:
         raise ValueError("Ubicación no encontrada")
-    obs = _latest(db, loc.id)
+    obs = latest_observation(db, loc.id)
     if obs is None:
         raise ValueError("Sin observaciones")
 

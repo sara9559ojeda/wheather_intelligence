@@ -93,6 +93,9 @@ class HorizonPredictionOut(BaseModel):
     upper_bound: float | None = None
     actual_temperature: float | None = None
     model_type: str
+    model_version: str | None = None
+    interval_level: float | None = None
+    interval_method: str | None = None
 
 
 class ModelRunOut(BaseModel):

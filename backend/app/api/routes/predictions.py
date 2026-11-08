@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_db, get_location_slug
 from backend.app.db.models import ModelRun, Prediction, RetrainingRun
-from backend.app.db.queries import get_location, load_observations_df
+from backend.app.db.queries import get_location
 from backend.app.schemas import HorizonPredictionOut, ModelRunOut, RetrainingRunOut
 from backend.app.services.artifacts import get_predictor
+from backend.app.services.prediction.live import live_forecasts
 
 router = APIRouter(tags=["predictions"])
 
@@ -23,9 +24,8 @@ def latest_predictions(
     predictor = get_predictor(slug)
     if predictor is None:
         raise HTTPException(503, "Modelos no entrenados (ejecuta backend.ml.modeling.run_training)")
-    recent = load_observations_df(db, slug, last_n=72)
     try:
-        preds = predictor.predict_from_observations(recent)
+        preds = live_forecasts(db, slug)
     except ValueError as exc:
         raise HTTPException(503, f"No hay observaciones recientes suficientes: {exc}") from exc
     return [HorizonPredictionOut(**p.as_dict()) for p in preds]

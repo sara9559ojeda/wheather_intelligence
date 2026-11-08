@@ -11,21 +11,12 @@ from sqlalchemy.orm import Session
 from backend.app.api.deps import get_db, get_location_slug
 from backend.app.core.config import settings
 from backend.app.db.models import WeatherObservation
-from backend.app.db.queries import get_location
+from backend.app.db.queries import get_location, latest_observation
 from backend.app.schemas import CurrentWeatherOut, ObservationOut
 
 router = APIRouter(tags=["weather"])
 
 _DELAY_THRESHOLD_MIN = 120
-
-
-def _latest_observation(db: Session, location_id: int) -> WeatherObservation | None:
-    return db.scalar(
-        select(WeatherObservation)
-        .where(WeatherObservation.location_id == location_id)
-        .order_by(WeatherObservation.observed_at.desc())
-        .limit(1)
-    )
 
 
 @router.get("/weather/current", response_model=CurrentWeatherOut)
@@ -35,7 +26,7 @@ def current_weather(
     loc = get_location(db, slug)
     if loc is None:
         raise HTTPException(404, "Ubicación no encontrada")
-    obs = _latest_observation(db, loc.id)
+    obs = latest_observation(db, loc.id)
     if obs is None:
         raise HTTPException(503, "Todavía no hay observaciones cargadas")
 

@@ -14,6 +14,9 @@ from backend.ml.config_loader import model_artifact_name
 
 log = logging.getLogger(__name__)
 
+# Los intervalos se construyen con los percentiles 5 y 95 de los residuales de validación.
+NOMINAL_LEVEL = 0.90
+
 
 @dataclass
 class HorizonPrediction:
@@ -24,6 +27,10 @@ class HorizonPrediction:
     lower_bound: float
     upper_bound: float
     model_type: str
+    # versión = marca de entrenamiento del artefacto (trazabilidad de qué modelo emitió esto)
+    model_version: str | None = None
+    interval_level: float | None = None
+    interval_method: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -34,6 +41,9 @@ class HorizonPrediction:
             "lower_bound": self.lower_bound,
             "upper_bound": self.upper_bound,
             "model_type": self.model_type,
+            "model_version": self.model_version,
+            "interval_level": self.interval_level,
+            "interval_method": self.interval_method,
         }
 
 
@@ -69,6 +79,9 @@ class TemperaturePredictor:
                 lower_bound=round(p + m["residual_p05"], 2),
                 upper_bound=round(p + m["residual_p95"], 2),
                 model_type=m["model_type"],
+                model_version=m.get("trained_at"),
+                interval_level=NOMINAL_LEVEL,
+                interval_method="validation_residual_quantiles",
             ))
         return out
 
