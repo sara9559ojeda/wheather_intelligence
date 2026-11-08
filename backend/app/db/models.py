@@ -4,7 +4,8 @@ Tablas:
   locations             catálogo de ubicaciones
   weather_observations   observaciones meteorológicas (históricas + tiempo real)
   model_runs             entrenamientos de modelos de regresión + sus métricas
-  predictions            predicciones de temperatura generadas por un model_run
+  predictions            predicciones de temperatura generadas por un model_run (backtest)
+  forecast_log           registro append-only de pronósticos EMITIDOS y su verificación
   cluster_models         modelos de clustering (K-Means) entrenados
   cluster_assignments    asignación de cada observación a un cluster
   anomalies              observaciones evaluadas por el detector de anomalías
@@ -199,6 +200,75 @@ class Prediction(Base):
     model_run: Mapped[ModelRun] = relationship(back_populates="predictions")
 
 
+# Estados de un pronóstico registrado
+FORECAST_PENDING = "pending"      # su hora objetivo aún no se ha verificado
+FORECAST_VERIFIED = "verified"    # se comparó con la observación real
+FORECAST_EXPIRED = "expired"      # pasó demasiado tiempo sin observación con que compararlo
+ALLOWED_FORECAST_STATUS = (FORECAST_PENDING, FORECAST_VERIFIED, FORECAST_EXPIRED)
+
+
+class ForecastLog(Base):
+    """Pronóstico realmente emitido, conservado tal cual (nunca se recalcula).
+
+    A diferencia de ``predictions`` (que guarda el backtest del entrenamiento y se
+    borra en cascada con su ``model_run``), esta tabla es un registro de lo que el
+    sistema dijo EN SU MOMENTO. Es la base de la evaluación transparente: solo
+    cuentan los pronósticos emitidos antes de conocer el valor observado.
+
+    Idempotente: (ubicación, horizonte, hora base) es único; si la ingesta se repite
+    en la misma hora, se conserva la primera emisión.
+    """
+
+    __tablename__ = "forecast_log"
+    __table_args__ = (
+        UniqueConstraint("location_id", "horizon_hours", "base_time"),
+        CheckConstraint(
+            f"status in {ALLOWED_FORECAST_STATUS}", name="forecast_status_allowed"
+        ),
+        Index("ix_forecast_log_location_id_status_target_time",
+              "location_id", "status", "target_time"),
+        Index("ix_forecast_log_location_id_horizon_hours_target_time",
+              "location_id", "horizon_hours", "target_time"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False
+    )
+    horizon_hours: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    issued_at: Mapped[datetime] = _ts(server_default=func.now(), nullable=False)
+    base_time: Mapped[datetime] = _ts(nullable=False)
+    target_time: Mapped[datetime] = _ts(nullable=False)
+
+    predicted_temperature: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    lower_bound: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    upper_bound: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    interval_level: Mapped[float | None] = mapped_column(Numeric(4, 3))    # nominal, p. ej. 0.900
+    interval_method: Mapped[str | None] = mapped_column(String(40))
+
+    model_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    # El model_run puede desaparecer (re-entrenamiento desde cero): el registro no.
+    model_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("model_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    # trained_at del artefacto que produjo el pronóstico
+    model_version: Mapped[str | None] = mapped_column(String(80))
+
+    # Referencias emitidas EN EL MISMO INSTANTE (comparación justa, sin reconstrucción):
+    baseline_persistence: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    reference_forecast: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    reference_source: Mapped[str | None] = mapped_column(String(40))
+
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default=FORECAST_PENDING,
+        server_default=text("'pending'"),
+    )
+    observed_temperature: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    observed_source: Mapped[str | None] = mapped_column(String(16))
+    verified_at: Mapped[datetime | None] = _ts(nullable=True)
+    error: Mapped[float | None] = mapped_column(Numeric(6, 3))             # predicho − observado
+
+
 class ClusterModel(Base):
     __tablename__ = "cluster_models"
 
@@ -212,6 +282,9 @@ class ClusterModel(Base):
     feature_list: Mapped[list | None] = mapped_column(JSONB)
     centroids: Mapped[dict | None] = mapped_column(JSONB)
     cluster_labels: Mapped[dict | None] = mapped_column(JSONB)
+    # perfil estadístico de los regímenes (medianas, estacionalidad, permanencia,
+    # transiciones, etiquetas): se calcula una vez por modelo (services/analysis/regimes.py)
+    profile: Mapped[dict | None] = mapped_column(JSONB)
     artifact_path: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
@@ -227,6 +300,8 @@ class ClusterAssignment(Base):
             "cluster_model_id",
             "cluster_id",
         ),
+        # el borrado en cascada de una observación busca por esta columna
+        Index("ix_cluster_assignments_observation_id", "observation_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
