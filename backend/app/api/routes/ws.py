@@ -25,6 +25,10 @@ Contrato de mensajes (servidor -> cliente, frames de texto JSON)::
                                        "promoted_horizons": ["1", "24"]}}
         El reentrenamiento promocionó un modelo -> refetch de /api/model/*.
 
+    {"type": "forecasts_verified", "data": {"location": "bogota", "n_verified": 5}}
+        Se verificaron pronósticos emitidos (su hora objetivo ya pasó) -> refetch de
+        /api/evaluation/* y /api/forecast/reliability de esa ciudad.
+
     {"type": "ping"}
         Latido si no ha habido otro mensaje en ``heartbeat_seconds``. No requiere
         respuesta; sirve para mantener viva la conexión y detectar cortes.
