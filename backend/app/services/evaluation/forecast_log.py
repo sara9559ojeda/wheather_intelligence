@@ -271,7 +271,8 @@ def offline_models(session: Session, location_id: int) -> list[dict]:
     """Candidatos del último entrenamiento: métricas de VALIDACIÓN (no son pronósticos reales)."""
     runs = session.scalars(
         select(ModelRun).where(ModelRun.location_id == location_id)
-        .order_by(ModelRun.trained_at.desc(), ModelRun.id.desc())
+        # el campeón en producción manda sobre un retador posterior que no fue promovido
+        .order_by(ModelRun.is_active.desc(), ModelRun.trained_at.desc(), ModelRun.id.desc())
     ).all()
     seen: set[tuple[int, str]] = set()
     out: list[dict] = []

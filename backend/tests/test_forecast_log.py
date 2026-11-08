@@ -15,6 +15,7 @@ from backend.app.db.models import (
     FORECAST_VERIFIED,
     ForecastLog,
     Location,
+    ModelRun,
     WeatherObservation,
 )
 from backend.app.db.session import SessionLocal
@@ -316,3 +317,23 @@ def test_pending_forecasts_never_feed_calibration(city_factory):
         res = un.recent_residuals(s, loc_id, 3, "v1")
         s.rollback()
     assert len(res) == 0
+
+
+@pytest.mark.db
+def test_offline_models_show_the_active_champion_not_a_later_challenger(city_factory):
+    _, loc_id = city_factory(None)
+    champion_metrics = {"validation": {"rmse": 1.6}, "test": {"rmse": 1.5, "mae": 1.1}}
+    challenger_metrics = {"validation": {"rmse": 1.55}, "test_if_promoted": {"rmse": 1.4}}
+    with SessionLocal() as s:
+        s.add(ModelRun(location_id=loc_id, model_type="hist_gradient_boosting", horizon_hours=6,
+                       rmse=1.6, trained_at=utc(2026, 1, 1), is_active=True,
+                       metrics=champion_metrics))
+        s.add(ModelRun(location_id=loc_id, model_type="hist_gradient_boosting", horizon_hours=6,
+                       rmse=1.55, trained_at=utc(2026, 6, 1), is_active=False,
+                       metrics=challenger_metrics))
+        s.flush()
+        rows = fl.offline_models(s, loc_id)
+        s.rollback()
+    assert len(rows) == 1
+    assert rows[0]["is_champion"] is True
+    assert rows[0]["test_rmse"] == 1.5 and rows[0]["valid_rmse"] == pytest.approx(1.6)
