@@ -125,7 +125,9 @@ def clusters(
     if loc is None:
         raise HTTPException(404, "Ubicación no encontrada")
     cm = db.scalar(
-        select(ClusterModel).where(ClusterModel.is_active).order_by(ClusterModel.id.desc())
+        select(ClusterModel)
+        .where(ClusterModel.is_active, ClusterModel.location_id == loc.id)
+        .order_by(ClusterModel.id.desc())
     )
     if cm is None:
         raise HTTPException(503, "Todavía no hay un modelo de clustering")

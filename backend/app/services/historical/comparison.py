@@ -87,8 +87,8 @@ def _observation_frame(observed_at: datetime, values: dict) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
-def assign_cluster(observed_at: datetime, values: dict) -> dict | None:
-    art = get_cluster_artifact()
+def assign_cluster(slug: str, observed_at: datetime, values: dict) -> dict | None:
+    art = get_cluster_artifact(slug)
     if art is None:
         return None
     from backend.ml.mining.clustering import ClusterModel
@@ -107,8 +107,8 @@ def assign_cluster(observed_at: datetime, values: dict) -> dict | None:
     return {"cluster_id": cid, "distance_to_centroid": round(float(dist[0]), 3)}
 
 
-def score_anomaly(observed_at: datetime, values: dict) -> dict | None:
-    art = get_anomaly_artifact()
+def score_anomaly(slug: str, observed_at: datetime, values: dict) -> dict | None:
+    art = get_anomaly_artifact(slug)
     if art is None:
         return None
     from backend.ml.mining.anomalies import AnomalyModel
@@ -134,12 +134,12 @@ def compare(session: Session, slug: str, observed_at: datetime, values: dict) ->
         raise ValueError(f"Ubicación '{slug}' no encontrada")
 
     pcts = conditioned_percentiles(session, loc.id, observed_at, values)
-    cluster = assign_cluster(observed_at, values)
-    anomaly = score_anomaly(observed_at, values)
+    cluster = assign_cluster(slug, observed_at, values)
+    anomaly = score_anomaly(slug, observed_at, values)
 
     cluster_label = None
     if cluster is not None:
-        cluster_label = _cluster_labels(session).get(cluster["cluster_id"])
+        cluster_label = _cluster_labels(session, loc.id).get(cluster["cluster_id"])
 
     return {
         "location": loc.name,
@@ -154,9 +154,11 @@ def compare(session: Session, slug: str, observed_at: datetime, values: dict) ->
     }
 
 
-def _cluster_labels(session: Session) -> dict[int, str]:
+def _cluster_labels(session: Session, location_id: int) -> dict[int, str]:
     cm = session.scalar(
-        select(ClusterModel).where(ClusterModel.is_active).order_by(ClusterModel.id.desc())
+        select(ClusterModel)
+        .where(ClusterModel.is_active, ClusterModel.location_id == location_id)
+        .order_by(ClusterModel.id.desc())
     )
     if cm is None or not cm.cluster_labels:
         return {}

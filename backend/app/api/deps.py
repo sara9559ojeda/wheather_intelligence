@@ -72,6 +72,13 @@ def require_stream_ticket(ticket: str = Query(default="")) -> int:
         raise _unauthorized("Ticket no válido o caducado") from None
 
 
-def get_location_slug() -> str:
-    """Slug de la ubicación configurada (el proyecto trabaja con una)."""
-    return settings.wi_location_slug
+def get_location_slug(
+    location: str | None = Query(
+        default=None,
+        max_length=60,
+        pattern=r"^[a-z0-9_]+$",
+        description="Slug de la ciudad (ver GET /api/locations). Por defecto, la configurada.",
+    ),
+) -> str:
+    """Ciudad sobre la que opera la petición: ``?location=<slug>`` o la predeterminada."""
+    return location or settings.wi_location_slug

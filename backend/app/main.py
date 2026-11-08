@@ -33,6 +33,7 @@ from backend.app.api.routes import (
     dashboard,
     health,
     insights,
+    locations,
     predictions,
     stream,
     tasks,
@@ -41,7 +42,12 @@ from backend.app.api.routes import (
 )
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
-from backend.app.scheduler.jobs import ingest_job, start_scheduler, stop_scheduler
+from backend.app.scheduler.jobs import (
+    active_locations,
+    ingest_job,
+    start_scheduler,
+    stop_scheduler,
+)
 from backend.app.services.events import bus
 from backend.app.services.ingestion.open_meteo import OpenMeteoForecastClient
 from backend.app.services.ingestion.realtime import backfill_recent
@@ -62,22 +68,20 @@ async def lifespan(app: FastAPI):
                     "en serverless deben ser false (la ingesta llega por /api/tasks/ingest)")
 
     async def _startup_ingest() -> None:
-        client = OpenMeteoForecastClient(
-            base_url=settings.open_meteo_forecast_url,
-            latitude=settings.wi_latitude, longitude=settings.wi_longitude,
-        )
-        session = SessionLocal()
-        try:
-            n = await asyncio.to_thread(
-                backfill_recent, session, client, settings.wi_location_slug, 3
+        for slug, lat, lon in await asyncio.to_thread(active_locations):
+            client = OpenMeteoForecastClient(
+                base_url=settings.open_meteo_forecast_url, latitude=lat, longitude=lon,
             )
-            session.commit()
-            log.info("Backfill inicial: %d observaciones", n)
-        except Exception:
-            session.rollback()
-            log.exception("Backfill inicial falló (se continúa)")
-        finally:
-            session.close()
+            session = SessionLocal()
+            try:
+                n = await asyncio.to_thread(backfill_recent, session, client, slug, 3)
+                session.commit()
+                log.info("[%s] Backfill inicial: %d observaciones", slug, n)
+            except Exception:
+                session.rollback()
+                log.exception("[%s] Backfill inicial falló (se continúa)", slug)
+            finally:
+                session.close()
         # una ingesta de "condiciones actuales" para tener el dato más fresco
         await asyncio.to_thread(ingest_job)
 
@@ -99,7 +103,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Weather Intelligence API",
     version="0.6.0",
-    description="Minería de datos y ML meteorológico para Madrid-Barajas.",
+    description="Minería de datos y ML meteorológico por ciudad (España y Colombia).",
     lifespan=lifespan,
 )
 
@@ -124,7 +128,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # tiempo real (ticket de 60 s). Todo lo demás exige una sesión de usuario (JWT).
 for r in (health, auth, stream, ws, tasks):
     app.include_router(r.router, prefix="/api")
-for r in (weather, analytics, predictions, dashboard, insights):
+for r in (locations, weather, analytics, predictions, dashboard, insights):
     app.include_router(r.router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 

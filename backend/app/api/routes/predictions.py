@@ -20,7 +20,7 @@ def latest_predictions(
     db: Session = Depends(get_db), slug: str = Depends(get_location_slug)
 ) -> list[HorizonPredictionOut]:
     """Predicción en vivo a partir de las observaciones más recientes."""
-    predictor = get_predictor()
+    predictor = get_predictor(slug)
     if predictor is None:
         raise HTTPException(503, "Modelos no entrenados (ejecuta backend.ml.modeling.run_training)")
     recent = load_observations_df(db, slug, last_n=72)
@@ -67,20 +67,38 @@ def prediction_history(
 
 @router.get("/model/runs", response_model=list[ModelRunOut])
 def model_runs(
-    db: Session = Depends(get_db), active_only: bool = False
+    db: Session = Depends(get_db),
+    slug: str = Depends(get_location_slug),
+    active_only: bool = False,
 ) -> list[ModelRunOut]:
-    stmt = select(ModelRun).order_by(ModelRun.horizon_hours, ModelRun.rmse)
+    loc = get_location(db, slug)
+    if loc is None:
+        raise HTTPException(404, "Ubicación no encontrada")
+    stmt = (
+        select(ModelRun)
+        .where(ModelRun.location_id == loc.id)
+        .order_by(ModelRun.horizon_hours, ModelRun.rmse)
+    )
     if active_only:
         stmt = stmt.where(ModelRun.is_active.is_(True))
     return [ModelRunOut.model_validate(r) for r in db.scalars(stmt).all()]
 
 
 @router.get("/model/performance", response_model=list[ModelRunOut])
-def model_performance(db: Session = Depends(get_db)) -> list[ModelRunOut]:
+def model_performance(
+    db: Session = Depends(get_db), slug: str = Depends(get_location_slug)
+) -> list[ModelRunOut]:
     """Solo los campeones activos (para la tarjeta 'Model Performance' del dashboard)."""
+    loc = get_location(db, slug)
+    if loc is None:
+        raise HTTPException(404, "Ubicación no encontrada")
     rows = db.scalars(
         select(ModelRun)
-        .where(ModelRun.is_active.is_(True), ModelRun.model_type.notlike("baseline%"))
+        .where(
+            ModelRun.location_id == loc.id,
+            ModelRun.is_active.is_(True),
+            ModelRun.model_type.notlike("baseline%"),
+        )
         .order_by(ModelRun.horizon_hours)
     ).all()
     return [ModelRunOut.model_validate(r) for r in rows]

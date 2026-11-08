@@ -10,6 +10,7 @@ import joblib
 import pandas as pd
 
 from backend.app.services.features.builder import HORIZONS_HOURS, build_feature_frame
+from backend.ml.config_loader import model_artifact_name
 
 log = logging.getLogger(__name__)
 
@@ -41,13 +42,13 @@ class TemperaturePredictor:
         self.slug = slug
         self.models: dict[int, dict] = {}
         for h in HORIZONS_HOURS:
-            path = artifacts_dir / f"model_temp_h{h}.joblib"
+            path = artifacts_dir / model_artifact_name(h, slug)
             if path.exists():
                 self.models[h] = joblib.load(path)
         if not self.models:
             raise FileNotFoundError(
-                f"No hay artefactos model_temp_h*.joblib en {artifacts_dir}. "
-                "Ejecuta antes: python -m backend.ml.modeling.run_training"
+                f"No hay artefactos de modelo para {slug} en {artifacts_dir}. "
+                "Ejecuta antes: python -m backend.ml.add_location --slug <slug>"
             )
         log.info("Predictor cargado: horizontes %s", sorted(self.models))
 

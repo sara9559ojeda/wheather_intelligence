@@ -47,7 +47,7 @@ def _latest(db: Session, location_id: int) -> WeatherObservation | None:
 
 
 def _predictions(db: Session, slug: str) -> list[HorizonPredictionOut]:
-    predictor = get_predictor()
+    predictor = get_predictor(slug)
     if predictor is None:
         return []
     recent = load_observations_df(db, slug, last_n=72)
@@ -59,9 +59,11 @@ def _predictions(db: Session, slug: str) -> list[HorizonPredictionOut]:
         return []
 
 
-def _clusters(db: Session) -> ClusterModelOut | None:
+def _clusters(db: Session, location_id: int) -> ClusterModelOut | None:
     cm = db.scalar(
-        select(ClusterModel).where(ClusterModel.is_active).order_by(ClusterModel.id.desc())
+        select(ClusterModel)
+        .where(ClusterModel.is_active, ClusterModel.location_id == location_id)
+        .order_by(ClusterModel.id.desc())
     )
     if cm is None:
         return None
@@ -82,10 +84,14 @@ def _clusters(db: Session) -> ClusterModelOut | None:
     )
 
 
-def _model_performance(db: Session) -> list[ModelRunOut]:
+def _model_performance(db: Session, location_id: int) -> list[ModelRunOut]:
     rows = db.scalars(
         select(ModelRun)
-        .where(ModelRun.is_active.is_(True), ModelRun.model_type.notlike("baseline%"))
+        .where(
+            ModelRun.location_id == location_id,
+            ModelRun.is_active.is_(True),
+            ModelRun.model_type.notlike("baseline%"),
+        )
         .order_by(ModelRun.horizon_hours)
     ).all()
     return [ModelRunOut.model_validate(r) for r in rows]
@@ -150,10 +156,10 @@ def build_dashboard(db: Session, slug: str) -> DashboardOut:
         predictions=_predictions(db, slug),
         historical_comparison=HistoricalComparisonOut(**comparison),
         recent_anomalies=_recent_anomalies(db, loc.id),
-        clusters=_clusters(db) or ClusterModelOut(k=0, silhouette=None,
+        clusters=_clusters(db, loc.id) or ClusterModelOut(k=0, silhouette=None,
                                                   trained_at=datetime.now(UTC),
                                                   clusters=[]),
-        model_performance=_model_performance(db),
+        model_performance=_model_performance(db, loc.id),
         ai_insight=_latest_ai_insight(db, loc.id),
     )
 

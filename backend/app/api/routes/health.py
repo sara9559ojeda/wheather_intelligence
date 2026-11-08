@@ -48,10 +48,11 @@ def meta(db: Session = Depends(get_db), slug: str = Depends(get_location_slug)) 
             )
         )
     return {
-        "location": settings.wi_location_name,
-        "latitude": settings.wi_latitude,
-        "longitude": settings.wi_longitude,
-        "timezone": settings.wi_timezone,
+        "slug": slug,
+        "location": loc.name if loc else settings.wi_location_name,
+        "latitude": float(loc.latitude) if loc else settings.wi_latitude,
+        "longitude": float(loc.longitude) if loc else settings.wi_longitude,
+        "timezone": loc.timezone if loc else settings.wi_timezone,
         "observations": {"historical": n_hist, "realtime": n_realtime},
         "latest_observation": last_obs.isoformat() if last_obs else None,
         "ingest_interval_minutes": settings.ingest_interval_minutes,

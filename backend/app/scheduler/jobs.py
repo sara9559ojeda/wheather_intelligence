@@ -15,29 +15,37 @@ from backend.app.db.session import SessionLocal
 from backend.app.services.events import bus
 from backend.app.services.ingestion.open_meteo import OpenMeteoForecastClient
 from backend.app.services.ingestion.realtime import ingest_current
+from backend.app.services.locations import ready_locations
 
 log = logging.getLogger("scheduler")
 
 _scheduler: BackgroundScheduler | None = None
 
 
-def _make_client() -> OpenMeteoForecastClient:
+def _make_client(latitude: float, longitude: float) -> OpenMeteoForecastClient:
     return OpenMeteoForecastClient(
         base_url=settings.open_meteo_forecast_url,
-        latitude=settings.wi_latitude,
-        longitude=settings.wi_longitude,
+        latitude=latitude,
+        longitude=longitude,
     )
 
 
-def run_ingest() -> dict | None:
-    """Una pasada de ingesta (rellena huecos, procesa y publica el evento ``observation``).
-
-    Lanza la excepción si falla (tras hacer rollback). La usan el job del
-    scheduler y el endpoint ``POST /api/tasks/ingest`` (modo serverless).
-    """
+def active_locations() -> list[tuple[str, float, float]]:
+    """(slug, latitud, longitud) de las ciudades con modelos; si no hay, la configurada."""
     session = SessionLocal()
     try:
-        summary = ingest_current(session, _make_client(), settings.wi_location_slug)
+        found = [(loc.slug, float(loc.latitude), float(loc.longitude))
+                 for loc in ready_locations(session)]
+    finally:
+        session.close()
+    return found or [(settings.wi_location_slug, settings.wi_latitude, settings.wi_longitude)]
+
+
+def _ingest_location(slug: str, latitude: float, longitude: float) -> dict | None:
+    """Una pasada de ingesta de UNA ciudad. Lanza la excepción si falla (tras rollback)."""
+    session = SessionLocal()
+    try:
+        summary = ingest_current(session, _make_client(latitude, longitude), slug)
         session.commit()
     except Exception:
         session.rollback()
@@ -46,12 +54,37 @@ def run_ingest() -> dict | None:
         session.close()
     if summary:
         comp = summary["comparison"]
-        log.info("Nueva observación %s | anomalía=%s | cluster=%s | %d predicciones",
-                 summary["observed_at"], comp.get("is_anomaly"),
+        log.info("[%s] Nueva observación %s | anomalía=%s | cluster=%s | %d predicciones",
+                 slug, summary["observed_at"], comp.get("is_anomaly"),
                  comp.get("cluster_label"), len(summary["predictions"]))
     else:
-        log.debug("Sin datos nuevos de Open-Meteo")
+        log.debug("[%s] Sin datos nuevos de Open-Meteo", slug)
     return summary
+
+
+def run_ingest() -> dict | None:
+    """Una pasada de ingesta de TODAS las ciudades activas (el fallo de una no frena a las demás).
+
+    Devuelve el resumen de la ubicación predeterminada (o de la primera que haya ido bien).
+    Lanza la excepción si fallan todas. La usan el job del scheduler y el endpoint
+    ``POST /api/tasks/ingest`` (modo serverless).
+    """
+    targets = active_locations()
+    summaries: dict[str, dict | None] = {}
+    failures = 0
+    for slug, lat, lon in targets:
+        try:
+            summaries[slug] = _ingest_location(slug, lat, lon)
+        except Exception:  # noqa: BLE001 — una ciudad caída no debe frenar a las demás
+            failures += 1
+            log.exception("Fallo en la ingesta de %s", slug)
+            if len(targets) == 1:
+                raise
+    if failures == len(targets):
+        raise RuntimeError("Falló la ingesta de todas las ubicaciones")
+    return summaries.get(settings.wi_location_slug) or next(
+        (s for s in summaries.values() if s), None
+    )
 
 
 def ingest_job() -> None:
@@ -69,26 +102,33 @@ def retrain_check_job() -> None:
     """
     from backend.ml.modeling.retrain import check_trigger, run_retraining
 
+    for slug, _lat, _lon in active_locations():
+        _retrain_if_due(slug, check_trigger, run_retraining)
+
+
+def _retrain_if_due(slug: str, check_trigger, run_retraining) -> None:
     session = SessionLocal()
     try:
-        trigger = check_trigger(session, settings.wi_location_slug)
+        trigger = check_trigger(session, slug)
         if not trigger.should_run:
-            log.debug("Reentrenamiento: no toca (%d obs. nuevas desde %s)",
-                      trigger.n_new_observations, trigger.previous_cutoff)
+            log.debug("[%s] Reentrenamiento: no toca (%d obs. nuevas desde %s)",
+                      slug, trigger.n_new_observations, trigger.previous_cutoff)
             return
 
-        log.info("Reentrenamiento disparado (%s, %d obs. nuevas) — puede tardar varios minutos…",
-                  trigger.reason, trigger.n_new_observations)
-        run = run_retraining(session, settings.wi_location_slug, reason=trigger.reason)
+        log.info("[%s] Reentrenamiento disparado (%s, %d obs. nuevas) — puede tardar minutos…",
+                 slug, trigger.reason, trigger.n_new_observations)
+        run = run_retraining(session, slug, reason=trigger.reason)
         session.commit()
         promoted = [h for h, r in (run.results or {}).items() if r["promoted"]]
-        log.info("Reentrenamiento %s | horizontes promocionados: %s",
-                 run.status, promoted or "ninguno")
+        log.info("[%s] Reentrenamiento %s | horizontes promocionados: %s",
+                 slug, run.status, promoted or "ninguno")
         if promoted:
-            bus.publish("model_updated", {"status": run.status, "promoted_horizons": promoted})
+            bus.publish("model_updated", {
+                "location": slug, "status": run.status, "promoted_horizons": promoted,
+            })
     except Exception:  # noqa: BLE001 — igual que ingest_job, nunca tumba el scheduler
         session.rollback()
-        log.exception("Fallo en el job de reentrenamiento")
+        log.exception("[%s] Fallo en el job de reentrenamiento", slug)
     finally:
         session.close()
 

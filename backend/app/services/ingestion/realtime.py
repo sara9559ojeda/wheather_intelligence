@@ -124,6 +124,7 @@ def ingest_current(session: Session, provider: WeatherProvider, slug: str) -> di
 
     summary = _process(session, slug, loc.id, payload)
     bus.publish("observation", {
+        "location": slug,
         "observed_at": payload["observed_at"].isoformat(),
         "temperature_2m": payload.get("temperature_2m"),
         "is_anomaly": summary["comparison"].get("is_anomaly"),
@@ -137,10 +138,12 @@ def _recent_observations_df(session: Session, slug: str, hours: int = 60) -> pd.
     return df.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
 
 
-def _active_champions(session: Session) -> dict[int, int]:
+def _active_champions(session: Session, location_id: int) -> dict[int, int]:
     rows = session.execute(
         select(ModelRun.horizon_hours, ModelRun.id).where(
-            ModelRun.is_active, ModelRun.model_type.notlike("baseline%")
+            ModelRun.location_id == location_id,
+            ModelRun.is_active,
+            ModelRun.model_type.notlike("baseline%"),
         )
     ).all()
     return {int(h): int(i) for h, i in rows}
@@ -173,7 +176,7 @@ def _process(session: Session, slug: str, location_id: int, payload: Observation
             )
 
     predictions: list[dict] = []
-    predictor = get_predictor()
+    predictor = get_predictor(slug)
     if predictor is not None:
         recent = _recent_observations_df(session, slug)
         try:
@@ -181,7 +184,7 @@ def _process(session: Session, slug: str, location_id: int, payload: Observation
         except ValueError as exc:
             log.warning("Sin predicción (%s)", exc)
             preds = []
-        champions = _active_champions(session)
+        champions = _active_champions(session, location_id)
         for p in preds:
             predictions.append(p.as_dict())
             run_id = champions.get(p.horizon_hours)
