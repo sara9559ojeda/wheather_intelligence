@@ -25,9 +25,15 @@ from sqlalchemy import delete
 
 from backend.app.db.bulk import bulk_upsert
 from backend.app.db.models import ClusterAssignment, ClusterModel
-from backend.app.db.queries import load_observations_df
+from backend.app.db.queries import get_location, load_observations_df
 from backend.app.db.session import session_scope
-from backend.ml.config_loader import ARTIFACTS_DIR, PROCESSED_DIR, PROJECT_ROOT, load_config
+from backend.ml.config_loader import (
+    ARTIFACTS_DIR,
+    DEFAULT_SLUG,
+    PROJECT_ROOT,
+    load_config,
+    processed_dir,
+)
 from backend.ml.mining import clustering as clu
 
 log = logging.getLogger("mining.clustering")
@@ -156,7 +162,7 @@ def main() -> None:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     DOCS_DIR.mkdir(exist_ok=True)
 
-    train = pd.read_parquet(PROCESSED_DIR / "train.parquet")
+    train = pd.read_parquet(processed_dir(cfg.slug) / "train.parquet")
     log.info("Train: %d filas", len(train))
 
     X = clu.build_matrix(train)
@@ -172,6 +178,7 @@ def main() -> None:
     log.info("Clusters:\n%s", interp.to_string(index=False))
 
     with session_scope() as session:
+        loc = get_location(session, cfg.slug)
         all_obs = load_observations_df(session, cfg.slug, with_id=True)
         labels, dist = model.assign(all_obs)
         valid = ~np.isnan(dist)
@@ -182,10 +189,12 @@ def main() -> None:
             "distance_to_centroid": dist[valid],
         })
 
-        session.execute(delete(ClusterModel))  # empezar de cero (versión anterior en el artefacto)
+        # empezar de cero SOLO para esta ubicación (versión anterior en el artefacto)
+        session.execute(delete(ClusterModel).where(ClusterModel.location_id == loc.id))
         session.flush()
         sil = float(scores.loc[scores["k"] == model.k, "silhouette"].iloc[0])
         cm = ClusterModel(
+            location_id=loc.id,
             k=model.k,
             silhouette=sil,
             feature_list=list(model.features),
@@ -218,11 +227,12 @@ def main() -> None:
     )
     log.info("Artefacto: %s", artifact)
 
-    figures = _figures(scores, model, train, assign_all, cfg.slug)
-    (DOCS_DIR / "fase-4-clustering.md").write_text(
-        _report(sel, interp, model, assign_all, figures), encoding="utf-8"
-    )
-    log.info("Informe: docs/fase-4-clustering.md")
+    if cfg.slug == DEFAULT_SLUG:  # el informe de la fase 4 es el de la ubicación original
+        figures = _figures(scores, model, train, assign_all, cfg.slug)
+        (DOCS_DIR / "fase-4-clustering.md").write_text(
+            _report(sel, interp, model, assign_all, figures), encoding="utf-8"
+        )
+        log.info("Informe: docs/fase-4-clustering.md")
 
 
 if __name__ == "__main__":

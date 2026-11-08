@@ -23,7 +23,13 @@ from backend.app.db.bulk import bulk_upsert
 from backend.app.db.models import Anomaly
 from backend.app.db.queries import get_location, load_observations_df
 from backend.app.db.session import session_scope
-from backend.ml.config_loader import ARTIFACTS_DIR, PROCESSED_DIR, PROJECT_ROOT, load_config
+from backend.ml.config_loader import (
+    ARTIFACTS_DIR,
+    DEFAULT_SLUG,
+    PROJECT_ROOT,
+    load_config,
+    processed_dir,
+)
 from backend.ml.mining import anomalies as an
 
 log = logging.getLogger("mining.anomalies")
@@ -130,7 +136,7 @@ def main() -> None:
     cfg = load_config()
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    train = pd.read_parquet(PROCESSED_DIR / "train.parquet")
+    train = pd.read_parquet(processed_dir(cfg.slug) / "train.parquet")
     model = an.fit(train, contamination=args.contamination)
 
     with session_scope() as session:
@@ -138,7 +144,9 @@ def main() -> None:
         all_obs = load_observations_df(session, cfg.slug, with_id=True)
         scored = all_obs.join(model.score(all_obs))
 
-        session.execute(delete(Anomaly).where(Anomaly.detector == DETECTOR))
+        session.execute(
+            delete(Anomaly).where(Anomaly.detector == DETECTOR, Anomaly.location_id == loc.id)
+        )
         session.flush()
 
         valid = scored["anomaly_score"].notna()
@@ -166,9 +174,13 @@ def main() -> None:
     )
     log.info("Artefacto: %s", artifact)
 
-    figures = _figures(scored, cfg.slug)
-    (DOCS_DIR / "fase-4-anomalias.md").write_text(_report(scored, model, figures), encoding="utf-8")
-    log.info("Informe: docs/fase-4-anomalias.md | anomalías: %d de %d",
+    if cfg.slug == DEFAULT_SLUG:  # el informe de la fase 4 es el de la ubicación original
+        figures = _figures(scored, cfg.slug)
+        (DOCS_DIR / "fase-4-anomalias.md").write_text(
+            _report(scored, model, figures), encoding="utf-8"
+        )
+        log.info("Informe: docs/fase-4-anomalias.md")
+    log.info("Anomalías de %s: %d de %d", cfg.name,
              int(scored["is_anomaly"].sum()), int(scored["anomaly_score"].notna().sum()))
 
 

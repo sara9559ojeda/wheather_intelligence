@@ -23,6 +23,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import joblib
 import pandas as pd
@@ -40,7 +41,7 @@ from backend.app.services.features.builder import (
     list_feature_columns,
     target_column,
 )
-from backend.ml.config_loader import ARTIFACTS_DIR, PROJECT_ROOT
+from backend.ml.config_loader import ARTIFACTS_DIR, PROJECT_ROOT, model_artifact_name
 from backend.ml.modeling.baselines import SeasonalBaseline
 from backend.ml.modeling.metrics import all_metrics
 from backend.ml.modeling.train import HorizonResult, model_run_payload, train_horizon
@@ -174,10 +175,11 @@ def decide_promotion(
 #  Evaluación del campeón activo sobre el test nuevo
 # --------------------------------------------------------------------------- #
 def _score_active_champion(
-    session: Session, horizon: int, test_df: pd.DataFrame
+    session: Session, location_id: int, horizon: int, test_df: pd.DataFrame
 ) -> tuple[ModelRun | None, float | None, float | None]:
     active = session.scalar(
         select(ModelRun).where(
+            ModelRun.location_id == location_id,
             ModelRun.horizon_hours == horizon,
             ModelRun.is_active.is_(True),
             ModelRun.model_type.notlike(_ACTIVE_MODEL_TYPES_EXCLUDE),
@@ -211,6 +213,7 @@ def _score_active_champion(
 def _promote(
     session: Session,
     location_id: int,
+    slug: str,
     res: HorizonResult,
     feature_cols: list[str],
     split: SplitResult,
@@ -220,12 +223,13 @@ def _promote(
     if previous_champion is not None:
         previous_champion.is_active = False
 
-    current_path = ARTIFACTS_DIR / f"model_temp_h{res.horizon}.joblib"
+    artifact_name = model_artifact_name(res.horizon, slug)
+    current_path = ARTIFACTS_DIR / artifact_name
     if current_path.exists():
         archive_dir = ARTIFACTS_DIR / "archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-        archived_name = f"model_temp_h{res.horizon}_{stamp}.joblib"
+        archived_name = f"{Path(artifact_name).stem}_{stamp}.joblib"
         shutil.move(str(current_path), str(archive_dir / archived_name))
 
     joblib.dump(
@@ -240,11 +244,12 @@ def _promote(
 
     payload = model_run_payload(res, res.champion_type, is_champion=True)
     new_run = ModelRun(
+        location_id=location_id,
         **{k: payload[k] for k in ("model_type", "horizon_hours", "target",
                                    "mae", "rmse", "r2", "hyperparams", "metrics", "is_active")},
         train_period=periods["train"], valid_period=periods["valid"], test_period=periods["test"],
         feature_list=feature_cols,
-        artifact_path=f"backend/ml/artifacts/model_temp_h{res.horizon}.joblib",
+        artifact_path=f"backend/ml/artifacts/{artifact_name}",
     )
     session.add(new_run)
     session.flush()
@@ -272,12 +277,17 @@ def _promote(
 
 
 def _record_challenger(
-    session: Session, res: HorizonResult, feature_cols: list[str], periods: dict[str, str]
+    session: Session,
+    location_id: int,
+    res: HorizonResult,
+    feature_cols: list[str],
+    periods: dict[str, str],
 ) -> None:
     """Deja constancia del intento aunque no se promocione (trazabilidad, fase-1 §17)."""
     payload = model_run_payload(res, res.champion_type, is_champion=False)
     payload["metrics"]["test_if_promoted"] = res.test_champion  # se guarda igualmente, sin activar
     session.add(ModelRun(
+        location_id=location_id,
         **{k: payload[k] for k in ("model_type", "horizon_hours", "target",
                                    "mae", "rmse", "r2", "hyperparams", "metrics", "is_active")},
         train_period=periods["train"], valid_period=periods["valid"], test_period=periods["test"],
@@ -344,7 +354,7 @@ def run_retraining(session: Session, slug: str, *, reason: str = "manual") -> Re
     for h in HORIZONS_HOURS:
         res = train_horizon(split.train, split.valid, split.test, feature_cols, h, seasonal)
         active, champion_rmse_new, champion_original_rmse = _score_active_champion(
-            session, h, split.test
+            session, loc.id, h, split.test
         )
         decision = decide_promotion(
             res.test_champion["rmse"], champion_rmse_new, champion_original_rmse
@@ -364,9 +374,9 @@ def run_retraining(session: Session, slug: str, *, reason: str = "manual") -> Re
 
         if decision.promote:
             any_promoted = True
-            _promote(session, loc.id, res, feature_cols, split, periods, active)
+            _promote(session, loc.id, slug, res, feature_cols, split, periods, active)
         else:
-            _record_challenger(session, res, feature_cols, periods)
+            _record_challenger(session, loc.id, res, feature_cols, periods)
 
     run = RetrainingRun(
         location_id=loc.id, trigger_reason=reason, n_new_observations=n_new,

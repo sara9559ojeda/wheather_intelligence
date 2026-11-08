@@ -25,7 +25,7 @@ from backend.app.services.features.builder import (
     list_feature_columns,
     target_column,
 )
-from backend.ml.config_loader import PROCESSED_DIR, ensure_data_dirs, load_config
+from backend.ml.config_loader import ensure_data_dirs, load_config, processed_dir
 from backend.ml.preparation.clean import clean_observations
 from backend.ml.preparation.split import chronological_split, write_split
 
@@ -38,6 +38,8 @@ def main() -> None:
     )
     cfg = load_config()
     ensure_data_dirs()
+    out_dir = processed_dir(cfg.slug)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     with session_scope() as session:
         raw = load_observations_df(session, cfg.slug, sources=("historical",))
@@ -57,7 +59,7 @@ def main() -> None:
     log.info("Partición cronológica (hueco = %d h):", split.boundaries["gap_hours"])
     split.log()
 
-    write_split(split, PROCESSED_DIR)
+    write_split(split, out_dir)
 
     # metadatos del dataset procesado (versionable en git)
     manifest = {
@@ -75,10 +77,10 @@ def main() -> None:
         },
         "split": split.boundaries,
     }
-    (PROCESSED_DIR / "dataset_manifest.json").write_text(
+    (out_dir / "dataset_manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    log.info("Escrito %s y dataset_manifest.json", PROCESSED_DIR)
+    log.info("Escrito %s y dataset_manifest.json", out_dir)
 
 
 if __name__ == "__main__":

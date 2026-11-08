@@ -24,7 +24,14 @@ from backend.app.db.models import ModelRun, Prediction
 from backend.app.db.queries import get_location
 from backend.app.db.session import session_scope
 from backend.app.services.features.builder import HORIZONS_HOURS, target_column
-from backend.ml.config_loader import ARTIFACTS_DIR, PROCESSED_DIR, PROJECT_ROOT, load_config
+from backend.ml.config_loader import (
+    ARTIFACTS_DIR,
+    DEFAULT_SLUG,
+    PROJECT_ROOT,
+    load_config,
+    model_artifact_name,
+    processed_dir,
+)
 from backend.ml.modeling.baselines import SeasonalBaseline
 from backend.ml.modeling.models import MODEL_TYPES
 from backend.ml.modeling.train import HorizonResult, model_run_payload, train_horizon
@@ -36,8 +43,9 @@ _LOG_FMT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
 def _load_splits() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    manifest = json.loads((PROCESSED_DIR / "dataset_manifest.json").read_text(encoding="utf-8"))
-    parts = {n: pd.read_parquet(PROCESSED_DIR / f"{n}.parquet") for n in ("train", "valid", "test")}
+    pdir = processed_dir()
+    manifest = json.loads((pdir / "dataset_manifest.json").read_text(encoding="utf-8"))
+    parts = {n: pd.read_parquet(pdir / f"{n}.parquet") for n in ("train", "valid", "test")}
     return parts["train"], parts["valid"], parts["test"], manifest
 
 
@@ -247,7 +255,8 @@ def main() -> None:
     with session_scope() as session:
         loc = get_location(session, cfg.slug)
         # borrado en cascada: al eliminar los model_runs desaparecen sus predictions
-        session.execute(delete(ModelRun))
+        # borrado SOLO de esta ubicación; las demás ciudades conservan sus modelos
+        session.execute(delete(ModelRun).where(ModelRun.location_id == loc.id))
         session.flush()
 
         champion_run_id: dict[int, int] = {}
@@ -255,7 +264,8 @@ def main() -> None:
             for name in ("baseline_persistence", "baseline_seasonal"):
                 v = res.validation[name]
                 session.add(ModelRun(
-                    model_type=name, horizon_hours=res.horizon, target="temperature_2m",
+                    location_id=loc.id, model_type=name, horizon_hours=res.horizon,
+                    target="temperature_2m",
                     mae=v["mae"], rmse=v["rmse"], r2=v["r2"],
                     hyperparams={"kind": "baseline"}, metrics={"validation": v},
                     feature_list=None, is_active=False,
@@ -264,14 +274,17 @@ def main() -> None:
                 is_champ = mt == res.champion_type
                 payload = model_run_payload(res, mt, is_champ)
                 run = ModelRun(
+                    location_id=loc.id,
                     **{k: payload[k] for k in ("model_type", "horizon_hours", "target",
                                                "mae", "rmse", "r2", "hyperparams",
                                                "metrics", "is_active")},
                     train_period=periods["train"], valid_period=periods["valid"],
                     test_period=periods["test"],
                     feature_list=feature_cols,
-                    artifact_path=(f"backend/ml/artifacts/model_temp_h{res.horizon}.joblib"
-                                   if is_champ else None),
+                    artifact_path=(
+                        f"backend/ml/artifacts/{model_artifact_name(res.horizon, cfg.slug)}"
+                        if is_champ else None
+                    ),
                 )
                 session.add(run)
                 session.flush()
@@ -313,13 +326,14 @@ def main() -> None:
                 "residual_p95": res.residual_p95,
                 "trained_at": datetime.now(UTC).isoformat(),
             },
-            ARTIFACTS_DIR / f"model_temp_h{res.horizon}.joblib",
+            ARTIFACTS_DIR / model_artifact_name(res.horizon, cfg.slug),
         )
 
-    figures = _figures(results, test_df, feature_cols, cfg.slug)
-    report = _report(results, periods, figures)
-    (DOCS_DIR / "fase-5-modelado.md").write_text(report, encoding="utf-8")
-    log.info("Informe: docs/fase-5-modelado.md")
+    if cfg.slug == DEFAULT_SLUG:  # el informe de la fase 5 es el de la ubicación original
+        figures = _figures(results, test_df, feature_cols, cfg.slug)
+        report = _report(results, periods, figures)
+        (DOCS_DIR / "fase-5-modelado.md").write_text(report, encoding="utf-8")
+        log.info("Informe: docs/fase-5-modelado.md")
     for res in results:
         t = res.test_champion
         log.info("  H=%2dh  campeón=%s  test RMSE=%.3f  skill=%.3f",

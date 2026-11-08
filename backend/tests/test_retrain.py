@@ -115,13 +115,15 @@ def test_score_active_champion_matches_stored_test_metrics_order_of_magnitude():
     """El campeón activo, evaluado sobre SU PROPIO test, debe dar un RMSE similar
     al que ya tiene guardado en model_runs.metrics (no idéntico: aquí se recorta
     a las filas con target no nulo del parquet, no se reconstruye el split)."""
+    from backend.app.db.queries import get_location
     from backend.app.db.session import session_scope
     from backend.ml.config_loader import PROCESSED_DIR
     from backend.ml.modeling.retrain import _score_active_champion
 
     test_df = pd.read_parquet(PROCESSED_DIR / "test.parquet")
     with session_scope() as s:
-        active, rmse_new, original_rmse = _score_active_champion(s, 6, test_df)
+        loc_id = get_location(s, "madrid_barajas").id
+        active, rmse_new, original_rmse = _score_active_champion(s, loc_id, 6, test_df)
         assert active is not None
         assert rmse_new is not None
         assert original_rmse is not None
