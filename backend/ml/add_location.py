@@ -40,6 +40,7 @@ STEPS: list[tuple[str, str]] = [
     ("train", "backend.ml.modeling.run_training"),
     ("clustering", "backend.ml.mining.run_clustering"),
     ("anomalies", "backend.ml.mining.run_anomalies"),
+    ("intervals", "backend.ml.modeling.evaluate_intervals"),
 ]
 STEP_NAMES = [name for name, _ in STEPS]
 
