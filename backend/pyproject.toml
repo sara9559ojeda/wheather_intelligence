@@ -20,6 +20,8 @@ select = ["E", "F", "I", "UP", "B", "W"]
 # B008: `Depends(...)` en los valores por defecto es el patrón idiomático de FastAPI
 "app/api/routes/*.py" = ["B008"]
 "app/api/deps.py" = ["B008"]
+# texto en español para el usuario (plantillas, prompt del sistema): no se parte en líneas de 100
+"app/services/analyst/*.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
