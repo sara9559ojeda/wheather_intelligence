@@ -37,7 +37,7 @@ cd /opt/weather-intelligence
 | Logs del backend | `docker compose -f docker-compose.prod.yml logs -f --tail 100 backend` |
 | Copia manual de la BD | `bash deploy/backup.sh` |
 | Crear un usuario | `docker compose -f docker-compose.prod.yml exec backend python -m backend.app.create_user <email>` |
-| Activar Claude | poner `ANTHROPIC_API_KEY=...` en `.env` y `docker compose -f docker-compose.prod.yml up -d backend` |
+| Activar Claude (o cambiar otro secreto) | `bash deploy/set-secret.sh ANTHROPIC_API_KEY` (pide el valor sin mostrarlo y reinicia el backend) |
 
 Restaurar una copia (sustituye la BD actual):
 
