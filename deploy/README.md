@@ -69,8 +69,31 @@ aws lightsail open-instance-public-ports --profile weather-intelligence --region
    `docker compose -f docker-compose.prod.yml up -d --build`.
 5. En Vercel: `VITE_API_URL=https://<SITE_ADDRESS>` y volver a desplegar el frontend.
 
-## Plan de AWS
+## Plan de AWS y duración
 
-La cuenta está en el **plan gratuito** (100 USD de crédito) hasta el **10/05/2027**.
-Antes de esa fecha hay que pasarla al plan de pago en AWS Settings; si no, AWS
-cierra la cuenta (hay 90 días para recuperarla).
+El proyecto de AWS está en el **plan gratuito**: todo se paga con los créditos
+(100 USD) y AWS no cobra nada a la tarjeta mientras no se pase al plan de pago.
+El despliegue está previsto para **1 mes (del 10/11/2026 al 10/12/2026)**:
+
+| Concepto | Consumo de créditos en 1 mes |
+|---|---|
+| Lightsail `small_3_0` (IP estática y 3 TB incluidos) | ~12 USD |
+| Snapshots automáticos | < 1 USD |
+| **Total** | **~13 USD de 100** (0 USD de bolsillo) |
+
+No se activa ningún servicio fuera del plan gratuito y no se pasa el proyecto al
+plan de pago. El plan gratuito vence el 10/05/2027, mucho después del fin previsto.
+
+### Cierre al terminar el mes
+
+Borra todo lo que consume créditos (es irreversible; antes, guarda una copia de la BD):
+
+```bash
+scp -i ~/.ssh/weather-intelligence-lightsail ubuntu@3.128.123.180:/var/backups/weather-intelligence/*.dump .
+aws lightsail delete-instance  --profile weather-intelligence --region us-east-2 --instance-name wi-server --force-delete-add-ons
+aws lightsail release-static-ip --profile weather-intelligence --region us-east-2 --static-ip-name wi-static-ip
+aws lightsail delete-key-pair   --profile weather-intelligence --region us-east-2 --key-pair-name weather-intelligence
+```
+
+`--force-delete-add-ons` borra también los snapshots automáticos. Después, en
+Vercel, el frontend quedará sin backend hasta que cambie `VITE_API_URL`.
