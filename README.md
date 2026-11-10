@@ -239,6 +239,37 @@ contra `POST /api/tasks/ingest` (`Authorization: Bearer $INGEST_TOKEN`; sin
 token configurado el endpoint queda deshabilitado). Las migraciones se aplican a
 mano (`alembic upgrade head`) contra la URL directa de Neon.
 
+## Despliegue en Railway (recomendado)
+
+Un solo servicio con la imagen de `backend/Dockerfile` (lo configura
+[`railway.toml`](railway.toml)): API, scheduler de ingesta cada 30 min y
+reentrenamiento en el mismo proceso, con un Postgres de Railway. Las migraciones
+se aplican al arrancar. Sin Redis, sin GitHub Actions y sin Neon: el bus de
+eventos en memoria basta con **una sola réplica** (no subas `numReplicas`).
+
+1. Proyecto nuevo en Railway → **Add PostgreSQL**.
+2. Cargar los datos locales (antes de desplegar el backend). Con la
+   `DATABASE_PUBLIC_URL` del Postgres (pestaña *Variables*):
+   ```bash
+   docker exec wi_db pg_dump -U weather -d weather_intelligence -Fc --no-owner --no-privileges -f /tmp/wi.dump
+   docker cp wi_db:/tmp/wi.dump ./wi.dump
+   docker run --rm -v "$PWD:/d" postgres:16-alpine pg_restore --no-owner --no-privileges --clean --if-exists -d "<DATABASE_PUBLIC_URL>" /d/wi.dump
+   ```
+3. **New service → GitHub repo** (`wheather_intelligence`). Variables:
+
+   | Variable | Valor |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (referencia a la red privada) |
+   | `AUTH_SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+   | `ALLOW_REGISTRATION` | `false` (las cuentas vienen en la copia de la BD) |
+   | `ANTHROPIC_API_KEY` | opcional |
+   | `BACKEND_CORS_ORIGINS` | dominio del frontend, p. ej. `https://<app>.vercel.app` |
+
+   El resto va con los valores por defecto (`ENABLE_SCHEDULER=true`,
+   `RUN_STARTUP_BACKFILL=true`, `DB_POOL_MODE=queue`, `REDIS_URL` vacío).
+4. *Settings → Networking → Generate Domain* y poner esa URL como
+   `VITE_API_URL` en el proyecto del frontend (Vercel) y volver a desplegarlo.
+
 ## Login
 
 Toda la API de datos exige sesión (JWT); el dashboard abre en una pantalla de

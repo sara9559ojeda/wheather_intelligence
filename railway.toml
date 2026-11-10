@@ -1,0 +1,20 @@
+# =====================================================================
+# Despliegue en Railway: un solo servicio con la API + scheduler de ingesta
+# + reentrenamiento (backend/Dockerfile), y un Postgres de Railway.
+#
+# Una sola réplica: el bus de eventos en memoria (REDIS_URL vacío) solo
+# reparte los eventos de tiempo real dentro de un proceso, y el scheduler no
+# debe correr duplicado. Variables necesarias: ver README, "Despliegue en Railway".
+# =====================================================================
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+numReplicas = 1
+healthcheckPath = "/api/health"
+# incluye "alembic upgrade head", que va antes de arrancar la API
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
