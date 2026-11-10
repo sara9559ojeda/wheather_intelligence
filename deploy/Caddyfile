@@ -1,0 +1,6 @@
+# HTTPS automático con Let's Encrypt para $SITE_ADDRESS y proxy hacia la API.
+# Caddy reenvía WebSocket (/api/ws) y SSE (/api/stream) sin configuración extra.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy backend:8000
+}

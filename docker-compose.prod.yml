@@ -1,0 +1,72 @@
+# =====================================================================
+# Weather Intelligence — PRODUCCIÓN en un solo servidor (AWS Lightsail)
+#
+#   db       PostgreSQL 16 (solo red interna, sin puerto publicado)
+#   backend  API FastAPI + scheduler de ingesta + reentrenamiento (una réplica)
+#   caddy    HTTPS automático (Let's Encrypt) y proxy inverso hacia el backend
+#
+# Sin Redis: con un solo proceso basta el bus de eventos en memoria.
+# El frontend vive en Vercel y llama a https://$SITE_ADDRESS/api.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# Variables en .env (ver deploy/README.md): POSTGRES_USER, POSTGRES_PASSWORD,
+# POSTGRES_DB, SITE_ADDRESS, AUTH_SECRET_KEY, BACKEND_CORS_ORIGINS, ...
+# =====================================================================
+name: weather-intelligence
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: ""
+      ENABLE_SCHEDULER: "true"
+      RUN_STARTUP_BACKFILL: "true"
+      DB_POOL_MODE: queue
+      WS_MAX_CONNECTION_SECONDS: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      # Dominio público, p. ej. 3-15-20-1.sslip.io (o ":80" para probar sin HTTPS)
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
