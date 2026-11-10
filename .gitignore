@@ -25,7 +25,7 @@ data/processed/*
 !data/processed/*.json
 
 # --- Artefactos de modelo ---
-# Los modelos campeón (~11 MB) SÍ se versionan: la imagen Docker los necesita
+# Los modelos campeón (~58 MB, 6 ciudades) SÍ se versionan: la imagen Docker los necesita
 # para servir predicciones al desplegar desde el repo. El archivo de versiones
 # antiguas que genera el reentrenamiento no.
 backend/ml/artifacts/archive/

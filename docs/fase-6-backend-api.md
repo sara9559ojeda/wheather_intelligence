@@ -231,7 +231,7 @@ hasta que el frontend migre al WebSocket.
   añade lo exclusivo de los pipelines offline (`pyarrow`, `meteostat`).
   Medido en `python:3.12-slim` sin *bytecode*: **357 MB** de site-packages
   para la API frente a **484 MB** con todo, con un límite de 500 MB por
-  función; más ~11 MB de artefactos `.joblib`.
+  función; más ~58 MB de artefactos `.joblib` (6 ciudades; el RandomForest va acotado en `models.py` para que ningún artefacto se dispare).
 - **`vercel.json`**: `maxDuration: 300`; `includeFiles` fuerza los `.joblib`
   y `backend/ml/config`; `excludeFiles` deja fuera `data/`, `docs/`,
   `frontend/`, `backend/tests/`, notebooks, `alembic/` y el archivo de

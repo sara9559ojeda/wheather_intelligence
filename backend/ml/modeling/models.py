@@ -29,11 +29,16 @@ def build_model(model_type: str) -> Pipeline:
             ("model", Ridge(alpha=1.0, random_state=RANDOM_STATE)),
         ])
     if model_type == "random_forest":
+        # Tamaño acotado: con 200 árboles y min_samples_leaf=5 el artefacto llegaba
+        # a ~300 MB (Barranquilla H=24h), por encima del límite de 100 MB por
+        # archivo de GitHub y del de 500 MB de la función de Vercel. Con esta
+        # configuración pesa ~15 MB y pierde ~1,7 % de RMSE en validación.
         return Pipeline([
             ("model", RandomForestRegressor(
-                n_estimators=200,
+                n_estimators=100,
                 max_features="sqrt",
-                min_samples_leaf=5,
+                min_samples_leaf=30,
+                max_samples=0.5,
                 n_jobs=-1,
                 random_state=RANDOM_STATE,
             )),
@@ -57,7 +62,7 @@ def hyperparams(model_type: str) -> dict:
     est = build_model(model_type).named_steps["model"]
     keep = {
         "ridge": ["alpha"],
-        "random_forest": ["n_estimators", "max_features", "min_samples_leaf"],
+        "random_forest": ["n_estimators", "max_features", "min_samples_leaf", "max_samples"],
         "hist_gradient_boosting": ["max_iter", "learning_rate", "max_depth", "l2_regularization"],
     }[model_type]
     return {k: getattr(est, k) for k in keep}

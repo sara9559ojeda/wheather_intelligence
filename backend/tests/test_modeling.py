@@ -47,6 +47,14 @@ def test_ridge_has_scaler_trees_do_not():
     assert "scaler" not in build_model("random_forest").named_steps
 
 
+def test_random_forest_artifact_size_is_bounded():
+    # Un bosque sin acotar pesaba ~300 MB (no cabe en GitHub ni en Vercel).
+    rf = build_model("random_forest").named_steps["model"]
+    assert rf.n_estimators <= 100
+    assert rf.min_samples_leaf >= 30
+    assert rf.max_samples is not None and rf.max_samples <= 0.5
+
+
 def _synthetic(n: int = 3000, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     ts = pd.date_range("2015-01-01", periods=n, freq="h", tz="UTC")
